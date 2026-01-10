@@ -1,0 +1,44 @@
+@import url('https://fonts.googleapis.com/css2?family=Balsamiq+Sans:ital,wght@0,400;0,700;1,400;1,700&family=Fira+Sans:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,100;1,200;1,300;1,400;1,500;1,600;1,700;1,800;1,900&family=Quicksand:wght@300..700&family=Roboto+Condensed:ital,wght@0,100..900;1,100..900&family=Siemreap&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Metal&display=swap');
+
+
+:root{
+    --main-color: #2C2B7C;
+}
+
+.font-custom{
+    font-family: "Fira Sans", sans-serif !important;
+}
+
+.bg-etec-color{
+    background-color: var(--main-color);
+}
+
+.text-etec-color{
+    color: var(--main-color);
+}
+
+.arrow-icon{
+    transition: transform 0.3s ease;
+}
+.rotate {
+    transform: rotate(90deg); /* right -> down */
+}
+
+::-webkit-scrollbar{
+    width: 0px !important;
+    background: transparent;
+}
+
+.text-limit {
+   overflow: hidden;
+   display: -webkit-box;
+   -webkit-line-clamp: 1; /* number of lines to show */
+           line-clamp: 1; 
+   -webkit-box-orient: vertical;
+}
+
+.kh-font{
+    font-family: "Metal", serif !important;
+}
+
