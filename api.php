@@ -13,6 +13,7 @@ require_once(__DIR__ . '/controllers/backend/ScheduleController.php');
 require_once(__DIR__ . '/controllers/backend/BuildingController.php');
 require_once(__DIR__ . '/controllers/backend/InstructorController.php');
 require_once(__DIR__ . '/controllers/backend/ClassAndStuController.php');
+require_once(__DIR__ . '/controllers/backend/AttendanceRule.php');
 
 
 require_once(__DIR__ . '/controllers/frontend/ClassController.php');
@@ -769,11 +770,23 @@ switch ($endpoint) {
 
         StudentController::countAttendanceByStudents($conn, $stu_ids);
     break;    
+    // case 'is_attendance_recorded_today':
+    //     $class_id = $_GET['class_id'] ?? null;
+    //     $date = $_GET['date'] ?? date('Y-m-d'); // default to today
+    //     StudentController::isAttendanceRecordedToday($conn, $class_id, $date);
+    // break;
+
     case 'is_attendance_recorded_today':
         $class_id = $_GET['class_id'] ?? null;
-        $date = $_GET['date'] ?? date('Y-m-d'); // default to today
-        StudentController::isAttendanceRecordedToday($conn, $class_id, $date);
+        $date = $_GET['date'] ?? date('Y-m-d');
+
+        $recorded = StudentController::isAttendanceRecordedToday($conn, $class_id, $date);
+
+        response(true, "Checked", [
+            "recorded" => $recorded
+        ]);
     break;
+
     
     case "transferStudentAndRemove":
         StudentController::transferStudentAndRemove($conn, $_POST['stu_id'], $_POST['transferTo']);
@@ -807,8 +820,14 @@ switch ($endpoint) {
     break;
 
     case 'getAllStudents':
-        $search = $_GET['search'] ?? "";
-        ClassAndStuController::getAllStudents($conn, $search);
+        ClassAndStuController::getAllStudents(
+            $conn,
+            $_GET['page']   ?? 1,
+            $_GET['limit']  ?? 10,
+            $_GET['search'] ?? '',
+            $_GET['course'] ?? '',
+            $_GET['gender'] ?? ''
+        );
     break;
 
     case 'delete_student':
@@ -928,12 +947,14 @@ switch ($endpoint) {
         );
     break;
 
-    case 'get_students_by_class':
+    case 'get_students_by_class_permission':
+        if ($method !== 'GET') response(false, "Method not allowed");
         StudentPermission::getStudentsByClass(
             $conn,
-            $_POST['class_id'] ?? null
+            $_GET['class_id'] ?? null
         );
     break;
+
 
     case 'student_permission_create':
         StudentPermission::submitPermission($conn);
@@ -957,6 +978,56 @@ switch ($endpoint) {
             $_GET['date']
         );
     break;
+
+    case 'update_permission':
+        if ($method !== 'POST') response(false, "Method not allowed");
+        StudentPermission::updatePermission($conn);
+    break;
+
+    case 'delete_permission':
+        if ($method !== 'POST') response(false, "Method not allowed");
+        StudentPermission::deletePermission($conn);
+    break;
+
+    case 'saveRule':
+        AttendanceRule::saveRule($conn);
+    break;
+
+    // case 'getActiveRules':
+    //     AttendanceRule::getActiveRules($conn);
+    // break;
+
+    case 'getAllRules':
+        AttendanceRule::getAllRules($conn);
+    break;
+
+    case 'getActiveRule':
+        AttendanceRule::getAllRules(
+            $conn,
+            $_GET['type'] ?? null
+        );
+    break;
+
+    case 'toggleRule':
+        AttendanceRule::toggleRule($conn);
+    break;
+
+    case 'updateRule':
+        AttendanceRule::updateRule($conn);
+    break;
+
+    case 'deleteRule':
+        AttendanceRule::deleteRule($conn);
+    break;
+
+    case 'beforeTrackAttendance':
+        StudentController::beforeTrackAttendance(
+            $conn,
+            $_GET['class_id'],
+            $_GET['date']
+        );
+    break;
+
     default:
         response(false, "Invalid endpoint");
 }

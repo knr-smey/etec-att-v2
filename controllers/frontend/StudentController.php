@@ -12,6 +12,294 @@ class StudentController {
         exit;
     }
 
+    private static function getCourseIdByClass($conn, $class_id) {
+        $stmt = $conn->prepare("
+            SELECT course_id
+            FROM classes
+            WHERE id = ?
+        ");
+        $stmt->bind_param("i", $class_id);
+        $stmt->execute();
+        $row = $stmt->get_result()->fetch_assoc();
+
+        return $row ? (int)$row['course_id'] : null;
+    }
+
+
+    // Detect WEEKLY or MONTHLY based on class term
+    private static function getPeriodTypeByClass($conn, $class_id) {
+
+        $stmt = $conn->prepare("
+            SELECT LOWER(t.term) AS term
+            FROM classes c
+            JOIN terms t ON c.term_id = t.id
+            WHERE c.id = ?
+        ");
+        $stmt->bind_param("i", $class_id);
+        $stmt->execute();
+
+        $row = $stmt->get_result()->fetch_assoc();
+        if (!$row) return 'week';
+
+        $term = $row['term'];
+
+        // 🔑 detect weekend keywords
+        $isWeekend =
+            strpos($term, 'sat') !== false ||
+            strpos($term, 'sun') !== false;
+
+        return $isWeekend ? 'month' : 'week';
+    }
+
+
+    // Count permission used in period
+    private static function countPermissionInPeriod($conn, $tel, $class_id, $period, $date) {
+
+        $course_id = self::getCourseIdByClass($conn, $class_id);
+        if (!$course_id) return 0;
+
+        // get active rule start_date
+        $term = self::getClassTermName($conn, $class_id);
+
+        $rule = AttendanceRule::getRuleForClass($conn, 'permission', $term);
+        $ruleStart = $rule ? $rule['start_date'] : $date;
+
+        if ($period === 'week') {
+
+            $ts = strtotime($date);
+
+            // ✅ SAFE MONDAY
+            $weekStart = date('Y-m-d', strtotime('last monday', $ts));
+            if (date('N', $ts) == 1) {
+                $weekStart = date('Y-m-d', $ts);
+            }
+
+            // ✅ SAFE SUNDAY
+            $weekEnd = date('Y-m-d', strtotime('+6 days', strtotime($weekStart)));
+
+            // ✅ Respect rule activation date
+            $start = ($ruleStart > $weekStart) ? $ruleStart : $weekStart;
+            $end   = $weekEnd;
+        }
+        else {
+
+            // ✅ monthly starts from rule activation date
+            $start = $ruleStart;
+            $end   = date('Y-m-t', strtotime($ruleStart));
+        }
+
+        $stmt = $conn->prepare("
+            SELECT COUNT(*) AS total
+            FROM student_records sr
+            JOIN students s ON sr.stu_id = s.id
+            WHERE s.tel = ?
+            AND sr.permission = 1
+            AND NOT EXISTS (
+                SELECT 1
+                FROM student_permissions sp
+                WHERE sp.stu_id = sr.stu_id
+                AND sp.status = 'approved'
+                AND DATE(sr.att_record_date) BETWEEN sp.start_date AND sp.end_date
+            )
+            AND DATE(sr.att_record_date) BETWEEN ? AND ?
+        ");
+        $stmt->bind_param("sss", $tel, $start, $end);
+        $stmt->execute();
+
+        return (int)$stmt->get_result()->fetch_assoc()['total'];
+    }
+
+
+
+        // 🚫 Block permission if rule exceeded
+    private static function checkPermissionRule($conn, $tel, $class_id, $date) {
+
+        $periodType = self::getPeriodTypeByClass($conn, $class_id);
+
+       $rule = AttendanceRule::getRuleForClass(
+            $conn,
+            'permission',
+            self::getClassTermName($conn, $class_id)
+        );
+
+        if (!$rule) return true;
+
+        $used = self::countPermissionInPeriod(
+            $conn,
+            $tel,
+            $class_id,
+            $periodType,
+            $date
+        );
+
+        return ($used < $rule['limit_count']);
+    }
+
+    private static function getClassTermName($conn, $class_id) {
+        $stmt = $conn->prepare("
+            SELECT LOWER(t.term) AS term
+            FROM classes c
+            JOIN terms t ON c.term_id = t.id
+            WHERE c.id = ?
+        ");
+        $stmt->bind_param("i", $class_id);
+        $stmt->execute();
+
+        $row = $stmt->get_result()->fetch_assoc();
+        return $row ? $row['term'] : '';
+    }
+
+
+
+    public static function beforeTrackAttendance($conn, $class_id, $date) {
+
+        try {
+
+            if (self::isAttendanceRecordedToday($conn, $class_id, $date)) {
+                self::response(false, "⚠️ Attendance for today has already been recorded.");
+            }
+
+            // 🔐 build lock status for each student
+            $lockStatus = self::getAttendanceLockStatus($conn, $class_id, $date);
+
+            self::response(true, "✅ Ready to track attendance", $lockStatus);
+
+        } catch (Exception $e) {
+            self::response(false, $e->getMessage());
+        }
+    }
+
+    // Check if attendance is recorded for today (IGNORE permission students)
+    public static function isAttendanceRecordedToday($conn, $class_id, $date) {
+
+        if (empty($class_id) || empty($date)) {
+            throw new Exception("Class ID and date are required");
+        }
+
+        $stmt = $conn->prepare("
+            SELECT COUNT(*) AS total
+            FROM student_records sr
+            INNER JOIN students s ON sr.stu_id = s.id
+            WHERE s.class_id = ?
+            AND DATE(sr.att_record_date) = ?
+            AND NOT EXISTS (
+                SELECT 1
+                FROM student_permissions sp
+                WHERE sp.stu_id = sr.stu_id
+                AND sp.status = 'approved'
+                AND ? BETWEEN sp.start_date AND sp.end_date
+            )
+        ");
+
+        if (!$stmt) {
+            throw new Exception("Prepare failed: " . $conn->error);
+        }
+
+        $stmt->bind_param("iss", $class_id, $date, $date);
+        $stmt->execute();
+
+        $row = $stmt->get_result()->fetch_assoc();
+
+        return ((int)$row['total'] > 0);
+    }
+
+    public static function getAttendanceLockStatus($conn, $class_id, $date) {
+
+        $result = [];
+
+        $periodType = self::getPeriodTypeByClass($conn, $class_id);
+        // 🔹 FIX 1: fetch tel together with stu_id
+        $stmt = $conn->prepare("
+            SELECT s.id AS stu_id, s.tel
+            FROM students s
+            WHERE s.class_id = ?
+        ");
+        $stmt->bind_param("i", $class_id);
+        $stmt->execute();
+        $students = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+
+        foreach ($students as $stu) {
+
+            $stu_id = $stu['stu_id'];   // UI / attendance row
+            $tel    = $stu['tel'];      // REAL person key
+
+            // 1️⃣ Admin-approved permission (still per stu_id)
+            if (self::hasActiveApprovedPermission($conn, $stu_id, $date)) {
+                 // 📝 fetch reason ONLY if needed
+                $reason = self::getActiveApprovedPermission($conn, $stu_id, $date);
+                $result[$stu_id] = [
+                    'status' => 'permission',
+                    'locked' => true,
+                    'reason' => $reason ?? 'Permission approved'
+                ];
+                continue;
+            }
+
+            // 2️⃣ Permission rule (FIXED → tel + class_id)
+            $allowed = self::checkPermissionRule(
+                $conn,
+                $tel,        // ✅ FIX
+                $class_id,
+                $date
+            );
+
+            if (!$allowed) {
+                $result[$stu_id] = [
+                    'status' => 'permission_locked',
+                    'locked' => true,
+                    'reason' => $periodType === 'week'
+                        ? 'Permission already used this week'
+                        : 'Permission already used this month'
+                ];
+                continue;
+            }
+
+            // 3️⃣ Normal student
+            $result[$stu_id] = [
+                'status' => 'free',
+                'locked' => false,
+                'reason' => ''
+            ];
+        }
+
+        return $result;
+    }
+
+
+    private static function hasActiveApprovedPermission($conn, $stu_id, $date) {
+
+        $stmt = $conn->prepare("
+            SELECT 1
+            FROM student_permissions
+            WHERE stu_id = ?
+            AND status = 'approved'
+            AND ? BETWEEN start_date AND end_date
+            LIMIT 1
+        ");
+
+        $stmt->bind_param("is", $stu_id, $date);
+        $stmt->execute();
+
+        return $stmt->get_result()->num_rows > 0;
+    }
+
+    // 📝 Get real reason (UI only)
+    private static function getActiveApprovedPermission($conn, $stu_id, $date) {
+        $stmt = $conn->prepare("
+            SELECT reason
+            FROM student_permissions
+            WHERE stu_id = ?
+            AND status = 'approved'
+            AND ? BETWEEN start_date AND end_date
+            LIMIT 1
+        ");
+        $stmt->bind_param("is", $stu_id, $date);
+        $stmt->execute();
+
+        $row = $stmt->get_result()->fetch_assoc();
+        return $row ? $row['reason'] : null;
+    }
+
     // Create student and optionally transfer to another class using transfer class instructor
     public static function createStudent($conn, $fullname, $gender, $tel, $instructor_id, $class_id, $transferTo = null,) {
         if (empty($fullname) || empty($gender)) {
@@ -123,7 +411,6 @@ class StudentController {
         }
     }
 
-
     // Record attendance in batch and update att_score
     public static function recordsAttBatch($conn, $students, $class_id) {
         if (empty($students) || !is_array($students)) {
@@ -150,17 +437,65 @@ class StudentController {
 
             foreach ($students as $stu) {
                 $stu_id = $stu['stu_id'] ?? null;
-                $present = $stu['present'] ?? 0;
-                $absent = $stu['absent'] ?? 0;
-                $permission = $stu['permission'] ?? 0;
-                $reason = $stu['reason'] ?? "";
+                // $present = $stu['present'] ?? 0;
+                // $absent = $stu['absent'] ?? 0;
+                // $permission = $stu['permission'] ?? 0;
+                // $reason = $stu['reason'] ?? "";
 
                 if (!$stu_id) continue;
+                $present    = (int)($stu['present'] ?? 0);
+                $absent     = (int)($stu['absent'] ?? 0);
+                $permission = (int)($stu['permission'] ?? 0);
+                $reason     = trim($stu['reason'] ?? "");
 
-                // ✅ Current timestamp
+                // 🔴 DEFAULT: if nothing selected → ABSENT
+                if ($present === 0 && $permission === 0) {
+                    $absent = 1;
+                }
+
+                // 🟡 Permission overrides absent
+                if ($permission === 1) {
+                    $present = 0;
+                    $absent = 0;
+                }
+
+                // 🟢 Present overrides everything
+                if ($present === 1) {
+                    $absent = 0;
+                    $permission = 0;
+                }
+                // ⛔ BLOCK ILLEGAL PERMISSION
+                if ($permission == 1) {
+
+                    // 🔑 GET TEL FIRST (REAL PERSON KEY)
+                    $telStmt = $conn->prepare("SELECT tel FROM students WHERE id = ?");
+                    $telStmt->bind_param("i", $stu_id);
+                    $telStmt->execute();
+                    $telRow = $telStmt->get_result()->fetch_assoc();
+                    $tel = $telRow['tel'] ?? null;
+
+                    if (!$tel) {
+                        throw new Exception("Student tel not found for ID {$stu_id}");
+                    }
+
+                    $allowed = self::checkPermissionRule(
+                        $conn,
+                        $tel,        // ✅ FIXED
+                        $class_id,
+                        date('Y-m-d')
+                    );
+
+                    if (!$allowed) {
+                        throw new Exception(
+                            "❌ Permission limit exceeded for student ID {$stu_id}"
+                        );
+                    }
+                }
+
+
+                // ✅ Save attendance
                 $att_record_date = date('Y-m-d H:i:s');
 
-                // Insert attendance record
                 $stmt->bind_param(
                     "isiiiss",
                     $stu_id,
@@ -171,66 +506,26 @@ class StudentController {
                     $reason,
                     $class_id
                 );
-                if (!$stmt->execute()) throw new Exception("Insert failed for student $stu_id: " . $stmt->error);
 
-                // Calculate deduction
+                if (!$stmt->execute()) {
+                    throw new Exception("Insert failed for student $stu_id");
+                }
+
+                // score deduction
                 $deduction = ($absent * 1.0) + ($permission * 0.5);
 
-                // Update att_score if deduction > 0
                 if ($deduction > 0) {
-                    $updateStmt->bind_param("di", $deduction, $stu_id); // double + integer
-                    if (!$updateStmt->execute()) throw new Exception("Failed to update att_score for student $stu_id: " . $updateStmt->error);
+                    $updateStmt->bind_param("di", $deduction, $stu_id);
+                    $updateStmt->execute();
                 }
             }
+
 
             $conn->commit();
             self::response(true, "Attendance recorded and att_score updated successfully");
 
         } catch (Exception $e) {
             $conn->rollback();
-            self::response(false, $e->getMessage());
-        }
-    }
-
-    // Check if attendance is recorded for today (IGNORE permission students)
-    public static function isAttendanceRecordedToday($conn, $class_id, $date) {
-
-        if (empty($class_id) || empty($date)) {
-            self::response(false, "Class ID and date are required");
-        }
-
-        try {
-            $stmt = $conn->prepare("
-                SELECT COUNT(*) AS total
-                FROM student_records sr
-                INNER JOIN students s ON sr.stu_id = s.id
-                WHERE s.class_id = ?
-                AND DATE(sr.att_record_date) = ?
-                AND NOT EXISTS (
-                    SELECT 1
-                    FROM student_permissions sp
-                    WHERE sp.stu_id = sr.stu_id
-                        AND sp.status = 'approved'
-                        AND ? BETWEEN sp.start_date AND sp.end_date
-                )
-            ");
-
-            if (!$stmt) throw new Exception('Prepare failed: ' . $conn->error);
-
-            // class_id, date, date
-            $stmt->bind_param("iss", $class_id, $date, $date);
-            $stmt->execute();
-
-            $result = $stmt->get_result();
-            $row = $result->fetch_assoc();
-
-            if ($row['total'] > 0) {
-                self::response(false, "⚠️ Attendance for today has already been recorded.");
-            } else {
-                self::response(true, "✅ Attendance not yet recorded for today.");
-            }
-
-        } catch (Exception $e) {
             self::response(false, $e->getMessage());
         }
     }

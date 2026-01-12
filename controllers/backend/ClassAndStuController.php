@@ -187,56 +187,124 @@ class ClassAndStuController {
         }
     }
 
-    public static function getAllStudents($conn, $search = "") {
+    public static function getAllStudents(
+        $conn,
+        $page = 1,
+        $limit = 10,
+        $search = "",
+        $course = "",
+        $gender = ""
+    ) {
+
+        $page   = max(1, intval($page));
+        $limit  = max(1, intval($limit));
+        $offset = ($page - 1) * $limit;
+
         $sql = "
             SELECT 
-                s.id, 
-                s.full_name, 
-                s.gender, 
-                s.tel, 
-                s.class_id, 
-                c.course_id, 
-                cr.course, 
-                u.name AS instructor_name, 
+                s.id,
+                s.full_name,
+                s.gender,
+                s.tel,
+                s.class_id,
+                cr.course,
+                u.name AS instructor_name,
                 s.created_at
-            FROM students AS s
-            LEFT JOIN classes AS c ON s.class_id = c.id
-            LEFT JOIN courses AS cr ON c.course_id = cr.id
-            LEFT JOIN users AS u ON c.instructor_id = u.id
+            FROM students s
+            LEFT JOIN classes c ON s.class_id = c.id
+            LEFT JOIN courses cr ON c.course_id = cr.id
+            LEFT JOIN users u ON c.instructor_id = u.id
             WHERE 1
         ";
 
         $params = [];
-        $types = "";
+        $types  = "";
 
-        // 🔍 Search filter
+        // 🔍 Search
         if (!empty($search)) {
             $sql .= " AND (s.full_name LIKE ? OR cr.course LIKE ? OR u.name LIKE ?)";
             $searchParam = "%$search%";
-            $params = [$searchParam, $searchParam, $searchParam];
-            $types = "sss";
+            $params = array_merge($params, [$searchParam, $searchParam, $searchParam]);
+            $types .= "sss";
         }
 
-        $sql .= " ORDER BY s.id DESC";
+        // 🎓 Course filter
+        if (!empty($course)) {
+            $sql .= " AND c.course_id = ?";
+            $params[] = intval($course);
+            $types .= "i";
+        }
+
+        // 🚻 Gender filter
+        if (!empty($gender)) {
+            $sql .= " AND s.gender = ?";
+            $params[] = $gender;
+            $types .= "s";
+        }
+
+        // 🔢 Pagination
+        $sql .= " ORDER BY s.id DESC LIMIT ? OFFSET ?";
+        $params[] = $limit;
+        $params[] = $offset;
+        $types .= "ii";
 
         $stmt = $conn->prepare($sql);
-        if (!$stmt) {
-            self::response(false, "Prepare failed: " . $conn->error);
-        }
+        if (!$stmt) self::response(false, "Prepare failed: " . $conn->error);
 
-        if (!empty($params)) {
-            $stmt->bind_param($types, ...$params);
-        }
-
+        $stmt->bind_param($types, ...$params);
         $stmt->execute();
-        $result = $stmt->get_result();
+        $students = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
 
-        $students = [];
-        while ($row = $result->fetch_assoc()) {
-            $students[] = $row;
+        /* ===========================
+        COUNT TOTAL (same filters)
+        ============================ */
+        $countSql = "
+            SELECT COUNT(*) AS total
+            FROM students s
+            LEFT JOIN classes c ON s.class_id = c.id
+            LEFT JOIN courses cr ON c.course_id = cr.id
+            LEFT JOIN users u ON c.instructor_id = u.id
+            WHERE 1
+        ";
+
+        $countParams = [];
+        $countTypes  = "";
+
+        if (!empty($search)) {
+            $countSql .= " AND (s.full_name LIKE ? OR cr.course LIKE ? OR u.name LIKE ?)";
+            $countParams = array_merge($countParams, [$searchParam, $searchParam, $searchParam]);
+            $countTypes .= "sss";
         }
 
-        self::response(true, "Students retrieved successfully", $students);
+        if (!empty($course)) {
+            $countSql .= " AND c.course_id = ?";
+            $countParams[] = intval($course);
+            $countTypes .= "i";
+        }
+
+        if (!empty($gender)) {
+            $countSql .= " AND s.gender = ?";
+            $countParams[] = $gender;
+            $countTypes .= "s";
+        }
+
+        $countStmt = $conn->prepare($countSql);
+        if (!$countStmt) self::response(false, "Prepare count failed");
+
+        if (!empty($countParams)) {
+            $countStmt->bind_param($countTypes, ...$countParams);
+        }
+
+        $countStmt->execute();
+        $total = $countStmt->get_result()->fetch_assoc()['total'];
+
+        self::response(true, "Students retrieved successfully", [
+            "students" => $students,
+            "page" => $page,
+            "limit" => $limit,
+            "total" => $total,
+            "total_pages" => ceil($total / $limit)
+        ]);
     }
 
     // Delete student and update total_stu in classes

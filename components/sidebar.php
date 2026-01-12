@@ -103,6 +103,18 @@
                                 </span>
                             </li>
                         </a>
+                        <a href="pages/admin/permissionRule.php" class="btn text-white w-100 text-start my-1 border-0 fs-6 nav-link-ajax position-relative">
+                            <li class="m-0">
+                                <i class="bi bi-file-earmark-ruled me-2"></i>
+                                Permission Rule
+                            </li>
+                        </a>
+                        <a href="pages/admin/students.php" class="btn text-white w-100 text-start my-1  border-0 fs-6 nav-link-ajax">
+                            <li class="m-0">
+                                <i class="bi bi-people-fill me-2"></i>
+                                Student
+                            </li>
+                        </a>
                         <a href="pages/admin/permissionNotify.php" class="btn text-white w-100 text-start my-1 border-0 fs-6 nav-link-ajax position-relative">
                             <li class="m-0">
                                 <i class="bi bi-chat-quote-fill me-2"></i>
@@ -125,12 +137,6 @@
                             <li class="m-0">
                                 <i class="bi bi-house-exclamation me-2"></i>
                                 Class Type
-                            </li>
-                        </a>
-                        <a href="pages/admin/students.php" class="btn text-white w-100 text-start my-1  border-0 fs-6 nav-link-ajax">
-                            <li class="m-0">
-                                <i class="bi bi-people-fill me-2"></i>
-                                Student
                             </li>
                         </a>
                         <a href="pages/admin/buildings.php" class="btn text-white w-100 text-start my-1  border-0 fs-6 nav-link-ajax">

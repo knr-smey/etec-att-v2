@@ -852,7 +852,7 @@ $class_id = isset($_GET['class_id']) ? intval($_GET['class_id']) : 0;
                 String(date.getDate()).padStart(2, '0');
 
             $.ajax({
-                url: "api.php?endpoint=is_attendance_recorded_today",
+                url: "api.php?endpoint=beforeTrackAttendance",
                 method: "GET",
                 data: { class_id: class_id, date: today },
                 dataType: "json",
@@ -867,7 +867,8 @@ $class_id = isset($_GET['class_id']) ? intval($_GET['class_id']) : 0;
                         });
                         return;
                     }
-
+                    const lockMap = res.data || {};
+                    
                     $("#attModal").modal("show");
 
                     const modalBody = $("#modal-students-tbody");
@@ -881,21 +882,7 @@ $class_id = isset($_GET['class_id']) ? intval($_GET['class_id']) : 0;
                         String(date.getSeconds()).padStart(2, '0');
                     $('#date').text(timestamp);
 
-                    // =================================================
-                    // FETCH PERMISSION STUDENTS
-                    // =================================================
-                    let permissionMap = {};
-
-                    $.ajax({
-                        url: "api.php?endpoint=getTodayPermissions",
-                        method: "GET",
-                        data: { class_id: class_id, date: today },
-                        dataType: "json",
-                        async: false,
-                        success: function(permRes) {
-                            permissionMap = permRes.status ? permRes.data : {};
-                        }
-                    });
+                    
 
                     // =================================================
                     // RENDER STUDENTS
@@ -904,41 +891,132 @@ $class_id = isset($_GET['class_id']) ? intval($_GET['class_id']) : 0;
 
                         stuArr.forEach(student => {
 
-                            const isPermission = permissionMap[student.stu_id] !== undefined;
-                            const reasonText = isPermission ? permissionMap[student.stu_id] : "";
+                            // const isPermission = permissionMap[student.stu_id] !== undefined;
+                            // const reasonText = isPermission ? permissionMap[student.stu_id] : "";
+                            
+                            const lockInfo = lockMap[student.stu_id] || {};
 
+                            const autoPermission = lockInfo.status === 'permission';
+                            const autoAbsentByRule = lockInfo.status === 'absent';
+                            const isLocked = lockInfo.locked === true;
+
+                            // ✅ DEFAULT absent
+                            const isPermissionLocked = lockInfo.status === 'permission_locked';
+                            const isAdminPermission = lockInfo.status === 'permission';
+                            
+                            const hardLocked = autoAbsentByRule || autoPermission;
+                            const defaultAbsent =
+                                    !autoAbsentByRule &&
+                                    !autoPermission &&
+                                    !isLocked &&
+                                    !isPermissionLocked; // 👈 IMPORTANT
+
+                            // ✅ FIX: define reasonText
+                            const reasonText = lockInfo.reason || "";
+                            // const isLockedRow = autoAbsentByRule || autoPermission || isLocked;
+                            // ===============================
+                            // PM RENDER LOGIC (SAFE)
+                            // ===============================
+                            let pmHtml = '';
+
+                            if (isPermissionLocked || isAdminPermission || autoPermission) {
+                                // LOCKED → TEXT ONLY
+                                pmHtml = ` 
+                                    <button class="btn btn-warning" disabled>
+                                        PM
+                                    </button>`;
+                            } else {
+                                // ALLOWED → REAL BUTTON
+                                pmHtml = `
+                                    <button class="btn btn-warning permission-btn">
+                                        PM
+                                    </button>
+                                `;
+                            }
                             const row = `
                                 <tr data-id="${student.stu_id}"
-                                    data-permission="${isPermission ? 1 : 0}"
-                                    class="${isPermission ? 'table-info' : ''}">
+                                    data-locked="${hardLocked ? 1 : 0}"
+                                    class="${hardLocked ? 'table-secondary' : ''}">
 
                                     <td>${student.full_name}</td>
                                     <td>${student.gender}</td> 
 
                                     <td>
+                                        <!-- PRESENT -->
                                         <button class="btn btn-success present-btn"
-                                            ${isPermission ? "disabled" : ""}>P</button>
+                                            ${isLocked ? 'disabled' : ''}>
+                                            P
+                                        </button>
 
-                                        <!-- 🔴 FIX 2: NO active absent for permission -->
-                                        <button class="btn btn-danger absent-btn"
-                                            ${isPermission ? "disabled" : ""}>A</button>
+                                        <button class="btn btn-danger absent-btn ${autoAbsentByRule ? 'active' : ''}"
+                                                ${autoAbsentByRule ? 'disabled' : ''}>
+                                            A
+                                        </button>
 
-                                        <button class="btn btn-warning permission-btn
-                                            ${isPermission ? "active disabled" : ""}">PM</button>
+                                        ${pmHtml}
+
                                     </td>
 
+
                                     <td class="col-4">
-                                        <input type="text"
+                                       <input type="text"
                                             class="form-control reason-input shadow-none border"
                                             placeholder="Reason..."
                                             value="${reasonText}"
-                                            ${isPermission ? "disabled" : ""}>
+                                            ${isLocked ? "disabled" : ""}>
                                         <p class="text-danger d-none mb-0 small errorAlert"></p>
                                     </td>
                                 </tr>
                             `;
 
                             modalBody.append(row);
+
+                            const $lastRow = modalBody.find('tr').last();
+
+                            // ===== DEFAULT ABSENT (DISABLED BUT CAN BE CHANGED) =====
+                            if (defaultAbsent) {
+                                $lastRow.find('.absent-btn')
+                                    .addClass('active')
+                                    .prop('disabled', true);
+
+                                // allow P & PM to be clicked
+                                $lastRow.find('.present-btn, .permission-btn')
+                                    .prop('disabled', false);
+                            }
+
+                            // ===== HARD RULE: AUTO ABSENT =====
+                            if (autoAbsentByRule) {
+                                $lastRow.attr('data-locked', 1)
+                                    .find('.absent-btn')
+                                    .addClass('active')
+                                    .prop('disabled', true);
+                            }
+
+                            // ===== HARD RULE: AUTO PERMISSION =====
+                            if (autoPermission) {
+                                $lastRow.attr('data-locked', 1)
+                                    .find('.permission-btn')
+                                    .addClass('active')
+                                    .prop('disabled', true);
+                            }
+
+                           if (isPermissionLocked) {
+
+                                // PM locked
+                                $lastRow.find('.permission-btn')
+                                    .prop('disabled', true)
+                                    .addClass('disabled');
+
+                                // A must be DEFAULT + LOCKED
+                                $lastRow.find('.absent-btn')
+                                    .addClass('active')
+                                    .prop('disabled', true);
+
+                                // Only Present allowed
+                                $lastRow.find('.present-btn')
+                                    .prop('disabled', false);
+                            }
+
                         });
 
                     } else {
@@ -963,46 +1041,29 @@ $class_id = isset($_GET['class_id']) ? intval($_GET['class_id']) : 0;
             });
         });
 
-        $(document).on("click", ".present-btn", function () {
-            const row = $(this).closest("tr");
-            if (row.data("permission") == 1) return;
+        $(document).on('click', '.present-btn, .absent-btn, .permission-btn', function () {
+            const $btn = $(this);
+            const $row = $btn.closest('tr');
 
-            row.find(".present-btn").addClass("active");
-            row.find(".absent-btn, .permission-btn").removeClass("active");
-        });
+            if ($row.data('locked') === 1) return;
 
-        $(document).on("click", ".absent-btn", function () {
-            const row = $(this).closest("tr");
-            if (row.data("permission") == 1) return;
+            if ($btn.prop('disabled') && !$btn.hasClass('absent-btn')) return;
 
-            row.find(".absent-btn").addClass("active");
-            row.find(".present-btn, .permission-btn").removeClass("active");
-        });
+            $row.find('.present-btn, .absent-btn, .permission-btn')
+                .removeClass('active')
+                .prop('disabled', false);
 
-        $(document).on("click", ".permission-btn", function () {
-            const row = $(this).closest("tr");
+            $btn.addClass('active').prop('disabled', true);
 
-            row.find(".permission-btn").addClass("active");
-            row.find(".present-btn, .absent-btn").removeClass("active");
-        });
-
-        // Attendance Button Logic
-        $(document).on('click', '.present-btn, .absent-btn, .permission-btn', function(){
-            const $row = $(this).closest('tr');
-            const $reasonInput = $row.find('.reason-input');
-            const $presentBtn = $row.find('.present-btn');
-            const $absentBtn = $row.find('.absent-btn');
-            const $pmBtn = $row.find('.permission-btn');
-
-            $row.find('.present-btn, .absent-btn, .permission-btn').prop('disabled', false).removeClass('active');
-            $(this).prop('disabled', true).addClass('active');
-
-            if($(this).hasClass('permission-btn')){
-                $reasonInput.prop('disabled', false).focus();
+            const $reason = $row.find('.reason-input');
+            if ($btn.hasClass('permission-btn')) {
+                $reason.prop('disabled', false);
             } else {
-                $reasonInput.prop('disabled', true).val('');
+                $reason.prop('disabled', true).val('');
             }
         });
+
+
 
         $(document).on('keyup', '.reason-input', function(){
             const $input = $(this);
@@ -1024,11 +1085,16 @@ $class_id = isset($_GET['class_id']) ? intval($_GET['class_id']) : 0;
                 let isPermission = $row.find('.permission-btn').hasClass('active');
 
                 // 🔐 FIX 1: HARD RULE (permission overrides all)
-                if (isPermission) {
-                    isPresent = false;
-                    isAbsent = false;
+                if (isPermission && $reasonInput.val().trim() === '') {
+                    $reasonInput
+                        .addClass('border-danger')
+                        .siblings('.errorAlert')
+                        .removeClass('d-none')
+                        .text('⚠️ Please provide the reason for permission.');
+                    valid = false;
+                    return false;
                 }
-
+                
                 // 🔴 Validation
                 if (isPermission && $reasonInput.val().trim() === '') {
                     $reasonInput
