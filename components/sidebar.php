@@ -118,7 +118,7 @@
                         <a href="pages/admin/permissionNotify.php" class="btn text-white w-100 text-start my-1 border-0 fs-6 nav-link-ajax position-relative">
                             <li class="m-0">
                                 <i class="bi bi-chat-quote-fill me-2"></i>
-                                Permission Notify
+                                Permission Record
                             </li>
                         </a>
                         <a href="pages/admin/instructors.php" class="btn text-white w-100 text-start my-1 border-0 fs-6 nav-link-ajax">
