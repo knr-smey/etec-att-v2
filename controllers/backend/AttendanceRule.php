@@ -170,17 +170,23 @@ class AttendanceRule {
 
         foreach ($rules as $rule) {
 
-            // Weekend → MONTH rule
+            // ✅ APPLY TO ALL CLASSES
+            if ($rule['period_type'] === 'both') {
+                return $rule;
+            }
+
+            // Weekend class → MONTH rule
             if ($isWeekendClass && $rule['period_type'] === 'month') {
                 return $rule;
             }
 
-            // Weekday → WEEK rule
+            // Weekday class → WEEK rule
             if (!$isWeekendClass && $rule['period_type'] === 'week') {
                 return $rule;
             }
         }
 
-        return null; // no matching rule
+        return null;
     }
+
 }

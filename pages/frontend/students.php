@@ -293,13 +293,13 @@ $class_id = isset($_GET['class_id']) ? intval($_GET['class_id']) : 0;
                 <!-- Footer -->
                 <div class="modal-footer border-top justify-content-center">
                     <button type="button" class="btn btn-primary px-4" id="confirmTransferKeepBtn">
-                        Yes, Transfer (Keep Old)
+                        Transfer tv tea nv tnak jas 😒
                         <span class="spinner-border spinner-border-sm d-none ms-2" role="status" aria-hidden="true"></span>
                     </button>
-                    <button type="button" class="btn btn-danger px-4" id="confirmTransferRemoveBtn">
+                    <!-- <button type="button" class="btn btn-danger px-4" id="confirmTransferRemoveBtn">
                         Yes, Transfer & Remove
                         <span class="spinner-border spinner-border-sm d-none ms-2" role="status" aria-hidden="true"></span>
-                    </button>
+                    </button> -->
                 </div>
             </div>
         </div>
@@ -559,7 +559,7 @@ $class_id = isset($_GET['class_id']) ? intval($_GET['class_id']) : 0;
                     if (res.status && res.data.length > 0) {
                     
                         const pendingStudents = res.data.filter(s => s.approval === 'pending');
-                        console.log(pendingStudents);
+                        // console.log(pendingStudents);
                         
 
                         if (pendingStudents.length > 0) {
@@ -843,7 +843,7 @@ $class_id = isset($_GET['class_id']) ? intval($_GET['class_id']) : 0;
         // Pass class_id here 
 
 
-        $(document).off("click", "#trackAttendanceBtn").on("click", "#trackAttendanceBtn", function() {
+        $(document).off("click", "#trackAttendanceBtn").on("click", "#trackAttendanceBtn", function () {
 
             const date = new Date();
             const today =
@@ -856,7 +856,7 @@ $class_id = isset($_GET['class_id']) ? intval($_GET['class_id']) : 0;
                 method: "GET",
                 data: { class_id: class_id, date: today },
                 dataType: "json",
-                success: function(res) {
+                success: function (res) {
 
                     if (!res.status) {
                         Swal.fire({
@@ -867,8 +867,9 @@ $class_id = isset($_GET['class_id']) ? intval($_GET['class_id']) : 0;
                         });
                         return;
                     }
+
                     const lockMap = res.data || {};
-                    
+
                     $("#attModal").modal("show");
 
                     const modalBody = $("#modal-students-tbody");
@@ -882,8 +883,6 @@ $class_id = isset($_GET['class_id']) ? intval($_GET['class_id']) : 0;
                         String(date.getSeconds()).padStart(2, '0');
                     $('#date').text(timestamp);
 
-                    
-
                     // =================================================
                     // RENDER STUDENTS
                     // =================================================
@@ -891,131 +890,139 @@ $class_id = isset($_GET['class_id']) ? intval($_GET['class_id']) : 0;
 
                         stuArr.forEach(student => {
 
-                            // const isPermission = permissionMap[student.stu_id] !== undefined;
-                            // const reasonText = isPermission ? permissionMap[student.stu_id] : "";
-                            
                             const lockInfo = lockMap[student.stu_id] || {};
 
-                            const autoPermission = lockInfo.status === 'permission';
-                            const autoAbsentByRule = lockInfo.status === 'absent';
-                            const isLocked = lockInfo.locked === true;
-
-                            // ✅ DEFAULT absent
+                            const autoAbsentByRule   = lockInfo.status === 'absent';
+                            const autoPermission     = lockInfo.status === 'permission';
                             const isPermissionLocked = lockInfo.status === 'permission_locked';
-                            const isAdminPermission = lockInfo.status === 'permission';
-                            
-                            const hardLocked = autoAbsentByRule || autoPermission;
-                            const defaultAbsent =
-                                    !autoAbsentByRule &&
-                                    !autoPermission &&
-                                    !isLocked &&
-                                    !isPermissionLocked; // 👈 IMPORTANT
 
-                            // ✅ FIX: define reasonText
+                            const hardLocked = lockInfo.locked === true &&
+                                    lockInfo.status !== 'permission_locked';
+                            const defaultAbsent = lockInfo.status === 'free';
+
                             const reasonText = lockInfo.reason || "";
-                            // const isLockedRow = autoAbsentByRule || autoPermission || isLocked;
                             // ===============================
-                            // PM RENDER LOGIC (SAFE)
+                            // PM RENDER LOGIC
                             // ===============================
                             let pmHtml = '';
 
-                            if (isPermissionLocked || isAdminPermission || autoPermission) {
-                                // LOCKED → TEXT ONLY
-                                pmHtml = ` 
-                                    <button class="btn btn-warning" disabled>
-                                        PM
-                                    </button>`;
-                            } else {
-                                // ALLOWED → REAL BUTTON
+                            if (isPermissionLocked || autoPermission) {
                                 pmHtml = `
-                                    <button class="btn btn-warning permission-btn">
-                                        PM
-                                    </button>
+                                    <button class="btn btn-warning" disabled>PM</button>
+                                `;
+                            } else {
+                                pmHtml = `
+                                    <button class="btn btn-warning permission-btn">PM</button>
                                 `;
                             }
+                            // 🚫 HARD ABSENCE BLOCK (TEXT ONLY ROW)
+                            if (autoAbsentByRule) {
+                                const row = `
+                                    <tr data-id="${student.stu_id}"
+                                        data-locked="1"
+                                        data-auto-absent="1"
+                                        class="table-danger">
+
+                                        <td>${student.full_name}</td>
+                                        <td>${student.gender}</td>
+
+                                        <td colspan="2">
+                                            <span class="fw-bold text-danger">
+                                                🚫 Attendance locked. Please meet admin for approval.
+                                            </span>
+                                        </td>
+                                    </tr>
+                                `;
+
+                                modalBody.append(row);
+                                return; // ⛔ STOP here, do NOT render buttons row
+                            }
+
                             const row = `
                                 <tr data-id="${student.stu_id}"
                                     data-locked="${hardLocked ? 1 : 0}"
                                     class="${hardLocked ? 'table-secondary' : ''}">
 
                                     <td>${student.full_name}</td>
-                                    <td>${student.gender}</td> 
+                                    <td>${student.gender}</td>
 
                                     <td>
-                                        <!-- PRESENT -->
                                         <button class="btn btn-success present-btn"
-                                            ${isLocked ? 'disabled' : ''}>
+                                            ${hardLocked ? 'disabled' : ''}>
                                             P
                                         </button>
 
                                         <button class="btn btn-danger absent-btn ${autoAbsentByRule ? 'active' : ''}"
-                                                ${autoAbsentByRule ? 'disabled' : ''}>
+                                            ${autoAbsentByRule ? 'disabled' : ''}>
                                             A
                                         </button>
 
                                         ${pmHtml}
-
                                     </td>
 
-
                                     <td class="col-4">
-                                       <input type="text"
+                                        <input type="text"
                                             class="form-control reason-input shadow-none border"
                                             placeholder="Reason..."
                                             value="${reasonText}"
-                                            ${isLocked ? "disabled" : ""}>
+                                            ${hardLocked || isPermissionLocked ? "disabled" : ""}>
                                         <p class="text-danger d-none mb-0 small errorAlert"></p>
                                     </td>
                                 </tr>
                             `;
 
                             modalBody.append(row);
-
                             const $lastRow = modalBody.find('tr').last();
 
-                            // ===== DEFAULT ABSENT (DISABLED BUT CAN BE CHANGED) =====
-                            if (defaultAbsent) {
+                            // ===== DEFAULT ABSENT =====
+                           if (defaultAbsent && !hardLocked) {
                                 $lastRow.find('.absent-btn')
                                     .addClass('active')
                                     .prop('disabled', true);
 
-                                // allow P & PM to be clicked
                                 $lastRow.find('.present-btn, .permission-btn')
                                     .prop('disabled', false);
                             }
 
-                            // ===== HARD RULE: AUTO ABSENT =====
+                            // ===== HARD LOCK: ABSENCE BLOCK =====
                             if (autoAbsentByRule) {
-                                $lastRow.attr('data-locked', 1)
-                                    .find('.absent-btn')
-                                    .addClass('active')
-                                    .prop('disabled', true);
+                                $lastRow
+                                    .attr('data-locked', 1)
+                                    .addClass('table-secondary');
+
+                                $lastRow.find(
+                                    '.present-btn, .absent-btn, .permission-btn, .reason-input'
+                                ).prop('disabled', true);
                             }
 
-                            // ===== HARD RULE: AUTO PERMISSION =====
+                            // ===== HARD LOCK: PERMISSION APPROVED =====
                             if (autoPermission) {
-                                $lastRow.attr('data-locked', 1)
+                                $lastRow
+                                    .attr('data-locked', 1)
                                     .find('.permission-btn')
-                                    .addClass('active')
                                     .prop('disabled', true);
                             }
 
-                           if (isPermissionLocked) {
+                            // ===== PERMISSION LIMIT EXCEEDED =====
+                            if (isPermissionLocked) {
 
-                                // PM locked
+                                // unlock row
+                                $lastRow.attr('data-locked', 0);
+
+                                // PM disabled
                                 $lastRow.find('.permission-btn')
-                                    .prop('disabled', true)
-                                    .addClass('disabled');
+                                    .prop('disabled', true);
 
-                                // A must be DEFAULT + LOCKED
+                                // Absent locked
                                 $lastRow.find('.absent-btn')
                                     .addClass('active')
                                     .prop('disabled', true);
 
-                                // Only Present allowed
+                                // Present ALWAYS clickable
                                 $lastRow.find('.present-btn')
                                     .prop('disabled', false);
                             }
+
 
                         });
 
@@ -1031,7 +1038,7 @@ $class_id = isset($_GET['class_id']) ? intval($_GET['class_id']) : 0;
                         `);
                     }
                 },
-                error: function() {
+                error: function () {
                     Swal.fire({
                         icon: 'error',
                         title: 'Error',
@@ -1041,21 +1048,24 @@ $class_id = isset($_GET['class_id']) ? intval($_GET['class_id']) : 0;
             });
         });
 
+
         $(document).on('click', '.present-btn, .absent-btn, .permission-btn', function () {
             const $btn = $(this);
             const $row = $btn.closest('tr');
 
+            // 🔒 Only block HARD-LOCKED rows
             if ($row.data('locked') === 1) return;
 
-            if ($btn.prop('disabled') && !$btn.hasClass('absent-btn')) return;
-
+            // Reset buttons
             $row.find('.present-btn, .absent-btn, .permission-btn')
                 .removeClass('active')
                 .prop('disabled', false);
 
+            // Activate clicked button
             $btn.addClass('active').prop('disabled', true);
 
             const $reason = $row.find('.reason-input');
+
             if ($btn.hasClass('permission-btn')) {
                 $reason.prop('disabled', false);
             } else {
@@ -1075,41 +1085,32 @@ $class_id = isset($_GET['class_id']) ? intval($_GET['class_id']) : 0;
             let valid = true;
             let attendanceData = [];
 
-            $("#modal-students-tbody tr").each(function() {
+            $("#modal-students-tbody tr").each(function () {
                 const $row = $(this);
                 const studentId = parseInt($row.data("id"));
-                const $reasonInput = $row.find('.reason-input');
 
-                let isPresent = $row.find('.present-btn').hasClass('active');
-                let isAbsent = $row.find('.absent-btn').hasClass('active');
-                let isPermission = $row.find('.permission-btn').hasClass('active');
+                // 🚫 AUTO ABSENT (LOCKED BY RULE)
+                if ($row.data('auto-absent') === 1) {
+                    attendanceData.push({
+                        stu_id: studentId,
+                        present: 0,
+                        absent: 1,
+                        permission: 0,
+                        reason: 'Exceeded absence limit (awaiting admin approval)',
+                        pending_approval: 1
+                    });
+                    return; // ✅ skip normal logic
+                }
 
-                // 🔐 FIX 1: HARD RULE (permission overrides all)
-                if (isPermission && $reasonInput.val().trim() === '') {
-                    $reasonInput
-                        .addClass('border-danger')
-                        .siblings('.errorAlert')
-                        .removeClass('d-none')
-                        .text('⚠️ Please provide the reason for permission.');
+                // NORMAL STUDENTS
+                const isPresent    = $row.find('.present-btn').hasClass('active');
+                const isAbsent     = $row.find('.absent-btn').hasClass('active');
+                const isPermission = $row.find('.permission-btn').hasClass('active');
+                const reason       = $row.find('.reason-input').val()?.trim() || '';
+
+                if (isPermission && reason === '') {
                     valid = false;
                     return false;
-                }
-                
-                // 🔴 Validation
-                if (isPermission && $reasonInput.val().trim() === '') {
-                    $reasonInput
-                        .addClass('border-danger')
-                        .siblings('.errorAlert')
-                        .removeClass('d-none')
-                        .text('⚠️ Please provide the reason for permission.');
-                    valid = false;
-                    return false; // stop loop
-                } else {
-                    $reasonInput
-                        .removeClass('border-danger')
-                        .siblings('.errorAlert')
-                        .addClass('d-none')
-                        .text('');
                 }
 
                 attendanceData.push({
@@ -1117,7 +1118,8 @@ $class_id = isset($_GET['class_id']) ? intval($_GET['class_id']) : 0;
                     present: isPresent ? 1 : 0,
                     absent: isAbsent ? 1 : 0,
                     permission: isPermission ? 1 : 0,
-                    reason: $reasonInput.val().trim(),
+                    reason,
+                    pending_approval: 0
                 });
             });
 
@@ -1200,7 +1202,7 @@ $class_id = isset($_GET['class_id']) ? intval($_GET['class_id']) : 0;
                     }
                 },
                 error: function(xhr, status, error) {
-                    console.error(error);
+                    // console.error(error);
                     alert('Something went wrong.');
                 },
                 complete: function() {
@@ -1262,7 +1264,7 @@ $class_id = isset($_GET['class_id']) ? intval($_GET['class_id']) : 0;
                 },
                 error: function(xhr, status, error) {
                     console.error('AJAX error:', error);
-                    console.log('Raw response:', xhr.responseText);
+                    // console.log('Raw response:', xhr.responseText);
                     Swal.fire({ icon: 'error', title: 'Error', text: 'Failed to save scores. Please try again.' });
                 }
             });
@@ -1401,10 +1403,13 @@ $class_id = isset($_GET['class_id']) ? intval($_GET['class_id']) : 0;
         }
 
         function renderStudentListForEdit(classId, currentStudents = []) {
-            console.log('current: ',currentStudents);
+            // console.log('current: ',currentStudents);
             
             // Ensure all IDs are strings and trimmed
-            const currentIds = currentStudents.map(s => String(s.stu_id).trim());
+            const currentIds = currentStudents
+                    .filter(s => s && s.stu_id !== undefined && s.stu_id !== null)
+                    .map(s => String(s.stu_id).trim());
+
 
             let students = JSON.parse(localStorage.getItem('students_' + classId)) || null;
 
@@ -1451,7 +1456,7 @@ $class_id = isset($_GET['class_id']) ? intval($_GET['class_id']) : 0;
         });
 
         function populateStudentList(students, currentIds = []) {
-            console.log(currentIds);
+            // console.log(currentIds);
             
             const $list = $("#studentList").empty();
             students.forEach(student => {
@@ -1557,7 +1562,7 @@ $class_id = isset($_GET['class_id']) ? intval($_GET['class_id']) : 0;
                         groupTableBody.append(`<tr><td colspan="5" class="text-center">No Group</td></tr>`);
                         return;
                     }
-                    console.log(res.data);
+                    // console.log(res.data);
                     
                     res.data.forEach((group, index) => {
                         let studentNames = "No students";
@@ -1605,7 +1610,7 @@ $class_id = isset($_GET['class_id']) ? intval($_GET['class_id']) : 0;
                 type: 'GET',
                 dataType: 'json',
                 success: function(res) {
-                    console.log(res.data);
+                    // console.log(res.data);
                     
                     if (!res || res.status === false) {
                         alert('Error: ' + (res && res.message ? res.message : 'Unknown'));

@@ -33,6 +33,7 @@
                         <select name="period_type" class="form-control" required>
                             <option value="week">Per Week</option>
                             <option value="month">Per Month</option>
+                            <option value="both">Both</option>
                         </select>
                     </div>
 

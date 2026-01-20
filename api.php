@@ -530,6 +530,18 @@ switch ($endpoint) {
         ClassController::getByInstructor($conn, $instructor_id);
     break;
 
+    case 'class_get_by_instructor_id':
+        if ($method !== 'GET') response(false, "Method not allowed");
+
+        $instructor_id = intval($_GET['instructor_id'] ?? 0);
+
+        if (!$instructor_id) {
+            response(false, "Instructor ID is required");
+        }
+
+        ClassController::getByInstructor($conn, $instructor_id);
+    break;
+
     case 'class_update':
         if ($method !== 'POST') response(false, "Method not allowed");
 
@@ -1026,6 +1038,16 @@ switch ($endpoint) {
             $_GET['class_id'],
             $_GET['date']
         );
+    break;
+
+    case 'approve_absence_block':
+        if ($method !== 'POST') response(false, "Method not allowed");
+        StudentPermission::approveAbsenceBlock($conn);
+    break;
+    
+    case 'fetch_absence_permission_admin':
+        if ($method !== 'GET') response(false, "Method not allowed");
+        StudentPermission::fetchAbsenceAndPermissionForAdmin($conn);
     break;
 
     default:

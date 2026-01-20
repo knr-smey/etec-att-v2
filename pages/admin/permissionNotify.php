@@ -33,42 +33,44 @@
 
 
 <script>
-$(document).ready(function () {
+$(function () {
 
     let allData = [];
     let currentPage = 1;
     const perPage = 8;
+    let firstLoad = true;
 
     /* ===============================
        FETCH DATA
     =============================== */
     function fetchPermissions() {
 
-        $('#pendinPermission').html(`
-            <tr>
-                <td colspan="6" class="text-center py-4">
-                    <div class="spinner-border spinner-border-sm text-primary"></div>
-                </td>
-            </tr>
-        `);
+        if (firstLoad) {
+            $('#pendinPermission').html(`
+                <tr>
+                    <td colspan="6" class="text-center py-4">
+                        <div class="spinner-border spinner-border-sm text-primary"></div>
+                    </td>
+                </tr>
+            `);
+        }
 
-        $.getJSON('api.php', { endpoint: 'fetch_permissions_admin' }, function (res) {
+        $.getJSON('api.php', { endpoint: 'fetch_absence_permission_admin' })
+        .done(res => {
+            firstLoad = false;
 
-            if (!res.status || res.data.length === 0) {
-                $('#pendinPermission').html(`
-                    <tr>
-                        <td colspan="6" class="text-center text-muted py-4">
-                            No permission requests found
-                        </td>
-                    </tr>
-                `);
-                $('#pagination').empty();
+            if (!res.status || !res.data.length) {
+                allData = [];
+                renderEmpty();
                 return;
             }
 
             allData = res.data;
             currentPage = 1;
             renderPage();
+        })
+        .fail(() => {
+            renderError();
         });
     }
 
@@ -80,62 +82,83 @@ $(document).ready(function () {
         const start = (currentPage - 1) * perPage;
         const pageData = allData.slice(start, start + perPage);
 
-        let html = '';
+        let html = pageData.map(p => {
 
-        pageData.forEach(p => {
-            html += `
-            <tr>
+            const isAbsence   = p.request_type === 'absence';
+            const isPending   = isAbsence ? true : (p.status === 'pending');
+
+            return `
+            <tr data-id="${p.request_id}" data-type="${p.request_type}">
                 <!-- Student -->
-                <td>
-                    <div class="fw-semibold">${p.student_name}</div>
-                </td>
+                <td><strong>${p.student_name}</strong></td>
 
                 <!-- Course -->
-                <td>
-                    <div class="fw-semibold text-primary">${p.course}</div>
-                    <div class="small text-muted">
-                        ${p.term ?? '-'} • ${p.time ?? '-'}
-                    </div>
-                </td>
+                <td class="text-primary fw-semibold">${p.course}</td>
 
                 <!-- Period -->
                 <td>
-                    <span class="date-pill">
-                        <i class="bi bi-calendar3 me-1"></i>
-                        ${p.start_date} → ${p.end_date}
-                    </span>
+                    ${
+                        isAbsence
+                        ? `<span class="badge bg-danger">ABSENCE LIMIT</span>`
+                        : `<span class="date-pill">
+                                <i class="bi bi-calendar3 me-1"></i>
+                                ${p.start_date} → ${p.end_date}
+                        </span>`
+                    }
                 </td>
 
                 <!-- Reason -->
-                <td class="text-muted small">
-                    ${p.reason}
-                </td>
+                <td class="text-muted small">${p.reason || '-'}</td>
 
                 <!-- Status -->
                 <td class="text-center">
-                    <span class="status-pill ${
-                        p.status === 'pending' ? 'pending' : 'approved'
-                    }">
-                        ${p.status.toUpperCase()}
+                    <span class="status-pill ${isPending ? 'pending' : 'approved'}">
+                        ${isPending ? 'PENDING' : 'APPROVED'}
                     </span>
                 </td>
 
                 <!-- Action -->
                 <td class="text-end">
                     ${
-                        p.status === 'pending'
+                        isPending
                         ? `<button class="btn btn-success btn-sm btnApprove"
-                                data-id="${p.permission_id}">
+                                data-id="${p.request_id}"
+                                data-type="${p.request_type}">
                                 Approve
-                           </button>`
+                        </button>`
                         : `<i class="bi bi-check-circle-fill text-success fs-5"></i>`
                     }
                 </td>
             </tr>`;
-        });
+        }).join('');
 
         $('#pendinPermission').html(html);
         renderPagination();
+    }
+
+
+    /* ===============================
+       EMPTY / ERROR
+    =============================== */
+    function renderEmpty() {
+        $('#pendinPermission').html(`
+            <tr>
+                <td colspan="6" class="text-center text-muted py-4">
+                    No permission requests found
+                </td>
+            </tr>
+        `);
+        $('#pagination').empty();
+    }
+
+    function renderError() {
+        $('#pendinPermission').html(`
+            <tr>
+                <td colspan="6" class="text-center text-danger py-4">
+                    Failed to load data
+                </td>
+            </tr>
+        `);
     }
 
     /* ===============================
@@ -144,42 +167,37 @@ $(document).ready(function () {
     function renderPagination() {
 
         const totalPages = Math.ceil(allData.length / perPage);
-        let html = '';
-
         if (totalPages <= 1) {
             $('#pagination').empty();
             return;
         }
 
-        html += `
+        let html = `
             <li class="page-item ${currentPage === 1 ? 'disabled' : ''}">
-                <a class="page-link" href="#" data-page="${currentPage - 1}">Prev</a>
+                <a class="page-link" data-page="${currentPage - 1}">Prev</a>
             </li>
         `;
 
         for (let i = 1; i <= totalPages; i++) {
             html += `
                 <li class="page-item ${i === currentPage ? 'active' : ''}">
-                    <a class="page-link" href="#" data-page="${i}">${i}</a>
+                    <a class="page-link" data-page="${i}">${i}</a>
                 </li>
             `;
         }
 
         html += `
             <li class="page-item ${currentPage === totalPages ? 'disabled' : ''}">
-                <a class="page-link" href="#" data-page="${currentPage + 1}">Next</a>
+                <a class="page-link" data-page="${currentPage + 1}">Next</a>
             </li>
         `;
 
         $('#pagination').html(html);
     }
 
-    /* ===============================
-       PAGINATION CLICK
-    =============================== */
     $(document).on('click', '#pagination a', function (e) {
         e.preventDefault();
-        const page = $(this).data('page');
+        const page = +$(this).data('page');
         if (page >= 1) {
             currentPage = page;
             renderPage();
@@ -187,24 +205,36 @@ $(document).ready(function () {
     });
 
     /* ===============================
-       APPROVE
+       APPROVE (NO BLINK)
     =============================== */
+
+    
     $(document).on('click', '.btnApprove', function () {
 
-        const btn = $(this);
-        const id = btn.data('id');
+        const btn  = $(this);
+        const id   = btn.data('id');
+        const type = btn.data('type');
+
+        const endpoint =
+            type === 'absence'
+            ? 'approve_absence_block'
+            : 'approve_permission';
 
         btn.prop('disabled', true)
-           .html('<span class="spinner-border spinner-border-sm"></span>');
+        .html('<span class="spinner-border spinner-border-sm"></span>');
 
-        $.post('api.php?endpoint=approve_permission',
-            { permission_id: id },
-            function (res) {
-                if (res.status) fetchPermissions();
-                else alert(res.message || 'Approve failed');
-            },
-            'json'
-        );
+        $.post(`api.php?endpoint=${endpoint}`, { id }, function (res) {
+            // 🔥 Update UI only (NO BLINK)
+            const row = btn.closest('tr');
+
+            row.find('.status-pill')
+            .removeClass('pending')
+            .addClass('approved')
+            .text('APPROVED');
+
+            btn.replaceWith('<i class="bi bi-check-circle-fill text-success fs-5"></i>');
+
+        }, 'json');
     });
 
     /* ===============================
@@ -214,6 +244,7 @@ $(document).ready(function () {
 
 });
 </script>
+
 
 
 <style>

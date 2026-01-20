@@ -225,4 +225,78 @@ class StudentPermission
         self::response(true, "ok", $permissions);
     }
 
+    public static function fetchAbsenceAndPermissionForAdmin($conn)
+    {
+        $sql = "
+            (
+                SELECT
+                    sab.id            AS request_id,
+                    'absence'         AS request_type,
+                    s.full_name       AS student_name,
+                    co.course         AS course,
+                    c.id              AS class_id,
+                    NULL              AS start_date,
+                    NULL              AS end_date,
+                    'Exceeded absence limit' AS reason,
+                    sab.is_approved   AS status,
+                    sab.blocked_at    AS created_at
+                FROM student_attendance_block sab
+                JOIN students s ON s.id = sab.stu_id
+                JOIN classes c ON c.id = sab.class_id
+                JOIN courses co ON co.id = c.course_id
+            )
+
+            UNION ALL
+
+            (
+                SELECT
+                    sp.id             AS request_id,
+                    'permission'      AS request_type,
+                    s.full_name       AS student_name,
+                    co.course         AS course,
+                    c.id              AS class_id,
+                    sp.start_date,
+                    sp.end_date,
+                    sp.reason,
+                    sp.status,
+                    sp.created_at
+                FROM student_permissions sp
+                JOIN students s ON s.id = sp.stu_id
+                JOIN classes c ON c.id = sp.class_id
+                JOIN courses co ON co.id = c.course_id
+            )
+
+            ORDER BY created_at DESC
+        ";
+
+        $result = $conn->query($sql);
+
+        if (!$result) {
+            self::response(false, "Failed to fetch requests");
+        }
+
+        self::response(true, "Requests fetched", $result->fetch_all(MYSQLI_ASSOC));
+    }
+
+    public static function approveAbsenceBlock($conn)
+    {
+        $id = $_POST['id'] ?? null;
+
+        if (!$id) {
+            self::response(false, "Block ID missing");
+        }
+
+        $stmt = $conn->prepare("
+            DELETE FROM student_attendance_block
+            WHERE id = ?
+        ");
+        $stmt->bind_param("i", $id);
+
+        if (!$stmt->execute()) {
+            self::response(false, "Failed to unlock student");
+        }
+
+        self::response(true, "Student unlocked successfully");
+    }
+
 }

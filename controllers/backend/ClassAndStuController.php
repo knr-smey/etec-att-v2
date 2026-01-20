@@ -29,6 +29,7 @@ class ClassAndStuController {
                 c.term_id,
                 c.time_id,
                 c.building_id,
+                DATE(c.created_at) AS created_at,
                 cr.course AS course_name,
                 u.name AS instructor_name,
                 b.name AS building_name,

@@ -288,7 +288,7 @@
                 },
                 dataType: 'json',
                 success: function(res) {
-                    // console.table(res.data.classes)
+                    console.table(res.data.classes)
                     if (res.status) {
                         renderTable(res.data.classes);
                         renderPagination(res.data.total_pages);
@@ -781,6 +781,7 @@
                                 <td>
                                     <div>${cls.building_name}</div>
                                     <div>${cls.floor_name} - Room ${cls.room_name}</div>
+                                    <div><span class="text-secondary bg-secondary-subtle px-2 rounded">Created Date: ${cls.created_at}</span></div>
                                 </td>
                                 <td class="text-center">${cls.total_stu}</td>
                                 <td>

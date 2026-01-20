@@ -117,6 +117,51 @@
   </div>
 </div>
 
+<div class="modal fade" id="transferModal" tabindex="-1">
+  <div class="modal-dialog modal-md">
+    <div class="modal-content">
+
+      <div class="modal-header">
+        <h5 class="modal-title">
+          Transfer Student
+        </h5>
+        <button class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+
+      <div class="modal-body">
+        <input type="hidden" id="transfer_student_id">
+
+        <div class="mb-3">
+          <label class="form-label">Teacher</label>
+          <select id="transfer_teacher" class="form-select">
+            <option value="">Select teacher</option>
+          </select>
+        </div>
+
+        <div class="mb-2">
+          <label class="form-label">Class</label>
+          <div id="transfer_class_list" class="border rounded p-2 bg-light" style="max-height:200px; overflow:auto">
+            <div class="text-muted small">Select teacher first</div>
+          </div>
+        </div>
+      </div>
+
+     <div class="modal-footer justify-content-center">
+        <button class="btn btn-danger" id="btnTransferRemove">
+          <i class="bi bi-arrow-left-right me-1"></i>
+          Transfer & Remove
+        </button>
+
+        <button class="btn btn-success" id="btnTransferKeep">
+          <i class="bi bi-arrow-left-right me-1"></i>
+          Transfer & Keep Old Class
+        </button>
+      </div>
+
+    </div>
+  </div>
+</div>
+
 <script>
 $(document).ready(function () {
 
@@ -232,21 +277,30 @@ $(document).ready(function () {
             </button>
           </td>
           <td>
-            <button
-              class="btn btn-sm btn-danger btnDeleteStudent"
-              data-stu="${stu.id}"
-              data-class="${stu.class_id}"
-              data-name="${stu.full_name}"
-            >
-              <i class="bi bi-trash"></i>
-            </button>
-            <a href="pages/admin/studentDetails.php?stu_id=${stu.id}" 
-                class="view-student-detail text-decoration-none"
-                data-id="${stu.id}">
-                <button class="btn btn-light">
-                    <i class="bi bi-eye-fill"></i>
+            <div class="d-flex align-items-center gap-1">
+                 <button
+                  class="btn btn-sm btn-danger btnDeleteStudent"
+                  data-stu="${stu.id}"
+                  data-class="${stu.class_id}"
+                  data-name="${stu.full_name}"
+                >
+                  <i class="bi bi-trash"></i>
                 </button>
-            </a>
+                <a href="pages/admin/studentDetails.php?stu_id=${stu.id}" 
+                    class="view-student-detail text-decoration-none"
+                    data-id="${stu.id}">
+                    <button class="btn btn-sm btn-light">
+                        <i class="bi bi-eye-fill"></i>
+                    </button>
+                </a>
+                <button
+                  class="btn btn-sm btn-light btnTransferStudent"
+                  data-stu="${stu.id}"
+                  data-name="${stu.full_name}"
+                >
+                  <i class="bi bi-arrow-left-right"></i>
+                </button>
+            </div>
            
           </td>
         </tr>
@@ -291,6 +345,196 @@ $(document).ready(function () {
       });
   });
 
+  $(document).off("click", ".btnTransferStudent").on("click", ".btnTransferStudent", function () {
+
+    const stuId = $(this).data("stu");
+    const stuName = $(this).data("name");
+
+    $("#transfer_student_id").val(stuId);
+    $("#transfer_teacher").html(`<option>Loading...</option>`);
+    $("#transfer_class").html(`<option>Select class</option>`).prop("disabled", true);
+
+    $("#transferModal").modal("show");
+
+    // Load teachers
+    $.getJSON("api.php", { endpoint: "instructor_getall" }, function (res) {
+
+      if (!res.status) {
+        alert("Failed to load teachers");
+        return;
+      }
+
+      let html = `<option value="">Select teacher</option>`;
+      res.data.forEach(t => {
+        html += `<option value="${t.id}">${t.name}</option>`;
+      });
+
+      $("#transfer_teacher").html(html);
+    });
+  });
+
+  $("#transfer_teacher").on("change", function () {
+
+    const teacherId = $(this).val();
+
+    if (!teacherId) {
+      $("#transfer_class_list").html(`
+        <div class="text-muted small">Select teacher first</div>
+      `);
+      return;
+    }
+
+    $("#transfer_class_list").html(`
+      <div class="text-center text-muted small">Loading...</div>
+    `);
+
+    $.getJSON("api.php", {
+      endpoint: "class_get_by_instructor_id",
+      instructor_id: teacherId
+    }, function (res) {
+
+      console.log(res);
+
+      if (!res.status || res.data.length === 0) {
+        $("#transfer_class_list").html(`
+          <div class="text-danger small">No class found</div>
+        `);
+        return;
+      }
+
+      let html = "";
+
+      res.data.forEach(cls => {
+        html += `
+          <div class="form-check mb-1">
+            <input 
+              class="form-check-input transfer-class-checkbox"
+              type="radio"
+              name="transfer_class"
+              value="${cls.id}"
+              id="class_${cls.id}"
+            >
+            <label class="form-check-label" for="class_${cls.id}">
+              ${cls.course_name} 
+              <br>
+              <small class="text-muted">(Term #${cls.term_name}) - (Time #${cls.time})</small>
+            </label>
+          </div>
+        `;
+      });
+
+      $("#transfer_class_list").html(html);
+    });
+  });
+
+  function getTransferData() {
+    return {
+      stu_id: $("#transfer_student_id").val(),
+      transferTo: $("input[name='transfer_class']:checked").val()
+    };
+  }
+
+  $("#btnTransferRemove").on("click", function () {
+
+    const data = getTransferData();
+
+    if (!data.transferTo) {
+      Swal.fire({
+        icon: "warning",
+        title: "No class selected",
+        text: "Please select a class first"
+      });
+      return;
+    }
+
+    Swal.fire({
+      title: "Confirm Transfer",
+      text: "This will REMOVE the student from the old class.",
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonText: "Yes, transfer",
+      cancelButtonText: "Cancel",
+      confirmButtonColor: "#d33"
+    }).then((result) => {
+
+      if (!result.isConfirmed) return;
+
+      $.ajax({
+        url: "api.php?endpoint=transferStudentAndRemove",
+        method: "POST",
+        data: data,
+        dataType: "json",
+        success: function (res) {
+
+          if (!res.status) {
+            Swal.fire({
+              icon: "error",
+              title: "Transfer failed",
+              text: res.message
+            });
+            return;
+          }
+
+          $("#transferModal").modal("hide");
+          $("#transfer_class_list").html('<div class="text-muted small">Select teacher first</div>');
+          Swal.fire({
+            icon: "success",
+            title: "Transferred!",
+            text: "Student and attendance moved successfully",
+            timer: 1800,
+            showConfirmButton: false
+          });
+
+          fetchStudents();
+        }
+      });
+    });
+  });
+
+
+  $("#btnTransferKeep").on("click", function () {
+
+    const data = getTransferData();
+
+    if (!data.transferTo) {
+      Swal.fire({
+        icon: "warning",
+        title: "No class selected",
+        text: "Please select a class first"
+      });
+      return;
+    }
+
+    $.ajax({
+      url: "api.php?endpoint=transferStudentNotRemove",
+      method: "POST",
+      data: data,
+      dataType: "json",
+      success: function (res) {
+
+        if (!res.status) {
+          Swal.fire({
+            icon: "error",
+            title: "Transfer failed",
+            text: res.message
+          });
+          return;
+        }
+
+        $("#transferModal").modal("hide");
+
+        Swal.fire({
+          icon: "success",
+          title: "Transferred!",
+          text: "Student transferred and kept old class",
+          timer: 1800,
+          showConfirmButton: false
+        });
+
+        fetchStudents();
+      }
+    });
+  });
 
 
   // =========================
