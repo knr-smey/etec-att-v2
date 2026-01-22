@@ -1,7 +1,6 @@
 <?php
 class StudentController {
     
-    
 
     private static function response($status, $message = "", $data = []) {
         echo json_encode([
@@ -11,42 +10,35 @@ class StudentController {
         ]);
         exit;
     }
-    private static function countAbsenceInPeriod( $conn, $stu_id, $class_id, $period, $date) {
-        
+
+    private static function countAbsenceInPeriod($conn, $stu_id, $class_id, $period, $date) {
+
         $term = self::getClassTermName($conn, $class_id);
 
-        $rule = AttendanceRule::getRuleForClass(
-            $conn,
-            'absence',
-            $term     // ✅ CORRECT
-        );
+        $rule = AttendanceRule::getRuleForClass($conn, 'absence', $term);
         if (!$rule || !$rule['is_active']) return 0;
 
+        // BOTH => all time
         if ($rule['period_type'] === 'both') {
-
             $stmt = $conn->prepare("
                 SELECT COUNT(*) AS total
                 FROM student_records
                 WHERE stu_id = ?
-                AND class_id = ?
-                AND absent = 1
+                  AND class_id = ?
+                  AND absent = 1
             ");
             $stmt->bind_param("ii", $stu_id, $class_id);
             $stmt->execute();
-
             return (int)$stmt->get_result()->fetch_assoc()['total'];
         }
 
         $ruleStart = $rule['start_date'];
 
         if ($period === 'week') {
-
             $ts = strtotime($date);
 
             $weekStart = date('Y-m-d', strtotime('last monday', $ts));
-            if (date('N', $ts) == 1) {
-                $weekStart = date('Y-m-d', $ts);
-            }
+            if (date('N', $ts) == 1) $weekStart = date('Y-m-d', $ts);
 
             $weekEnd = date('Y-m-d', strtotime('+6 days', strtotime($weekStart)));
 
@@ -54,7 +46,6 @@ class StudentController {
             $end   = $weekEnd;
 
         } else { // month
-
             $monthStart = date('Y-m-01', strtotime($date));
             $monthEnd   = date('Y-m-t', strtotime($date));
 
@@ -66,9 +57,9 @@ class StudentController {
             SELECT COUNT(*) AS total
             FROM student_records
             WHERE stu_id = ?
-            AND class_id = ?
-            AND absent = 1
-            AND DATE(att_record_date) BETWEEN ? AND ?
+              AND class_id = ?
+              AND absent = 1
+              AND DATE(att_record_date) BETWEEN ? AND ?
         ");
         $stmt->bind_param("iiss", $stu_id, $class_id, $start, $end);
         $stmt->execute();
@@ -79,15 +70,38 @@ class StudentController {
     public static function approveAbsenceBlock($conn, $block_id) {
         try {
 
+            // 1) Get tel + course_id from the selected block_id
             $stmt = $conn->prepare("
-                UPDATE student_attendance_block
-                SET is_approved = 1
-                WHERE id = ?
-                AND block_type = 'absence'
+                SELECT s.tel, c.course_id
+                FROM student_attendance_block b
+                JOIN students s ON b.stu_id = s.id
+                JOIN classes  c ON b.class_id = c.id
+                WHERE b.id = ?
+                AND b.block_type = 'absence'
+                LIMIT 1
             ");
             $stmt->bind_param("i", $block_id);
+            $stmt->execute();
+            $info = $stmt->get_result()->fetch_assoc();
+            if (!$info) throw new Exception("Block not found");
 
-            if (!$stmt->execute()) {
+            $tel = $info['tel'];
+            $course_id = (int)$info['course_id'];
+
+            // 2) Approve all blocks for same tel + course
+            $upd = $conn->prepare("
+                UPDATE student_attendance_block b
+                JOIN students s ON b.stu_id = s.id
+                JOIN classes  c ON b.class_id = c.id
+                SET b.is_approved = 1
+                WHERE b.block_type = 'absence'
+                AND b.is_approved = 0
+                AND s.tel = ?
+                AND c.course_id = ?
+            ");
+            $upd->bind_param("si", $tel, $course_id);
+
+            if (!$upd->execute()) {
                 throw new Exception("Failed to approve absence block");
             }
 
@@ -98,67 +112,100 @@ class StudentController {
         }
     }
 
-
     private static function hasActiveAbsenceBlock($conn, $stu_id, $class_id) {
+            $stmt = $conn->prepare("
+                SELECT 1
+                FROM student_attendance_block
+                WHERE stu_id = ?
+                AND class_id = ?
+                AND block_type = 'absence'
+                AND is_approved = 0
+                LIMIT 1
+            ");
+            $stmt->bind_param("ii", $stu_id, $class_id);
+            $stmt->execute();
+
+            return $stmt->get_result()->num_rows > 0;
+    }
+
+    private static function ensureAbsenceBlockByTelCourse($conn, $tel, $course_id) {
 
         $stmt = $conn->prepare("
-            SELECT 1
-            FROM student_attendance_block
-            WHERE stu_id = ?
-            AND class_id = ?
-            AND block_type = 'absence'
-            AND is_approved = 0
-            LIMIT 1
+            SELECT s.id AS stu_id, s.class_id
+            FROM students s
+            JOIN classes c ON s.class_id = c.id
+            WHERE s.tel = ?
+            AND c.course_id = ?
         ");
-        $stmt->bind_param("ii", $stu_id, $class_id);
+        $stmt->bind_param("si", $tel, $course_id);
         $stmt->execute();
+        $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
 
-        return $stmt->get_result()->num_rows > 0;
+        foreach ($rows as $r) {
+            $stu_id   = (int)$r['stu_id'];
+            $class_id = (int)$r['class_id'];
+
+            // ✅ IMPORTANT: check ANY block exists (approved or not)
+            $check = $conn->prepare("
+                SELECT 1
+                FROM student_attendance_block
+                WHERE stu_id = ?
+                AND class_id = ?
+                AND block_type = 'absence'
+                LIMIT 1
+            ");
+            $check->bind_param("ii", $stu_id, $class_id);
+            $check->execute();
+
+            // if already exists -> do nothing (don't insert again)
+            if ($check->get_result()->num_rows > 0) continue;
+
+            $ins = $conn->prepare("
+                INSERT INTO student_attendance_block
+                (stu_id, class_id, block_type, is_approved, blocked_at)
+                VALUES (?, ?, 'absence', 0, NOW())
+            ");
+            $ins->bind_param("ii", $stu_id, $class_id);
+            $ins->execute();
+        }
     }
 
 
-    private static function autoBlockStudent($conn,$stu_id,$class_id,$date) {
+    private static function autoBlockStudent($conn, $stu_id, $class_id, $date) {
 
-        $period = self::getPeriodTypeByClass($conn, $class_id);
+        // get rule using TERM
+        $term = self::getClassTermName($conn, $class_id);
+        $rule = AttendanceRule::getRuleForClass($conn, 'absence', $term);
+        if (!$rule || !$rule['is_active']) return;
 
-        $count = self::countAbsenceInPeriod(
-            $conn,
-            $stu_id,
-            $class_id,
-            $period,
-            $date
-        );
+        $ruleStart = $rule['start_date'];
 
-        // if ($count <= 2) return;
-        $rule = AttendanceRule::getRuleForClass($conn, 'absence', $period);
-        if (!$rule) return;
+        // ✅ NEW: before rule start date -> no count, no block
+        if ($date < $ruleStart) return;
+
+        // 1) get tel
+        $telStmt = $conn->prepare("SELECT tel FROM students WHERE id = ?");
+        $telStmt->bind_param("i", $stu_id);
+        $telStmt->execute();
+        $telRow = $telStmt->get_result()->fetch_assoc();
+        $tel = $telRow['tel'] ?? null;
+        if (!$tel) return;
+
+        // 2) get course_id
+        $course_id = self::getCourseIdByClass($conn, $class_id);
+        if (!$course_id) return;
+
+        // 3) decide period from absence rule
+        $period = $rule['period_type'] === 'month' ? 'month' : 'week';
+        if ($rule['period_type'] === 'both') $period = 'both';
+
+        // 4) count absence by tel+course
+        $count = self::countAbsenceInPeriodByTel($conn, $tel, $course_id, $period, $date, $term);
 
         $limit = (int)$rule['limit_count'];
-
         if ($count < $limit) return;
 
-        // already blocked?
-        $check = $conn->prepare("
-            SELECT 1
-            FROM student_attendance_block
-            WHERE stu_id = ?
-            AND class_id = ?
-            AND is_approved = 0
-            LIMIT 1
-        ");
-        $check->bind_param("ii", $stu_id, $class_id);
-        $check->execute();
-
-        if ($check->get_result()->num_rows > 0) return;
-
-        // insert block
-        $stmt = $conn->prepare("
-            INSERT INTO student_attendance_block
-            (stu_id, class_id, block_type, is_approved, blocked_at)
-            VALUES (?, ?, 'absence', 0, NOW())
-        ");
-        $stmt->bind_param("ii", $stu_id, $class_id);
-        $stmt->execute();
+        self::ensureAbsenceBlockByTelCourse($conn, $tel, $course_id);
     }
 
 
@@ -174,7 +221,6 @@ class StudentController {
 
         return $row ? (int)$row['course_id'] : null;
     }
-
 
     // Detect WEEKLY or MONTHLY based on class term
     private static function getPeriodTypeByClass($conn, $class_id)
@@ -225,8 +271,6 @@ class StudentController {
         // 6️⃣ Final fallback
         return $isWeekend ? 'month' : 'week';
     }
-
-
 
     // Count permission used in period
     private static function countPermissionInPeriod($conn, $tel, $class_id, $period, $date) {
@@ -285,8 +329,6 @@ class StudentController {
         return (int)$stmt->get_result()->fetch_assoc()['total'];
     }
 
-
-
     // 🚫 Block permission if rule exceeded
     private static function checkPermissionRule($conn, $tel, $class_id, $date) {
 
@@ -325,17 +367,91 @@ class StudentController {
         return $row ? $row['term'] : '';
     }
 
+    private static function countAbsenceInPeriodByTel($conn, $tel, $course_id, $period, $date, $term) {
+
+        $rule = AttendanceRule::getRuleForClass($conn, 'absence', $term);
+        if (!$rule || !$rule['is_active']) return 0;
+
+        if ($rule['period_type'] === 'both') {
+
+            $ruleStart = $rule['start_date'];
+
+            // ✅ NEW: before start date => 0
+            if ($date < $ruleStart) return 0;
+
+            $stmt = $conn->prepare("
+                SELECT COUNT(*) AS total
+                FROM student_records sr
+                JOIN students s ON sr.stu_id = s.id
+                JOIN classes c ON sr.class_id = c.id
+                WHERE s.tel = ?
+                AND c.course_id = ?
+                AND sr.absent = 1
+                AND DATE(sr.att_record_date) >= ?
+                AND DATE(sr.att_record_date) <= ?
+            ");
+            $stmt->bind_param("siss", $tel, $course_id, $ruleStart, $date);
+            $stmt->execute();
+            return (int)$stmt->get_result()->fetch_assoc()['total'];
+        }
 
 
+        $ruleStart = $rule['start_date'];
+
+        if ($period === 'week') {
+            $ts = strtotime($date);
+            $weekStart = date('Y-m-d', strtotime('last monday', $ts));
+            if (date('N', $ts) == 1) $weekStart = date('Y-m-d', $ts);
+
+            $weekEnd = date('Y-m-d', strtotime('+6 days', strtotime($weekStart)));
+
+            $start = ($ruleStart > $weekStart) ? $ruleStart : $weekStart;
+            $end   = $weekEnd;
+
+        } else { // month
+            $monthStart = date('Y-m-01', strtotime($date));
+            $monthEnd   = date('Y-m-t', strtotime($date));
+
+            $start = ($ruleStart > $monthStart) ? $ruleStart : $monthStart;
+            $end   = $monthEnd;
+        }
+
+        $stmt = $conn->prepare("
+            SELECT COUNT(*) AS total
+            FROM student_records sr
+            JOIN students s ON sr.stu_id = s.id
+            JOIN classes c ON sr.class_id = c.id
+            WHERE s.tel = ?
+              AND c.course_id = ?
+              AND sr.absent = 1
+              AND DATE(sr.att_record_date) BETWEEN ? AND ?
+        ");
+        $stmt->bind_param("siss", $tel, $course_id, $start, $end);
+        $stmt->execute();
+
+        return (int)$stmt->get_result()->fetch_assoc()['total'];
+    }
+    
     public static function beforeTrackAttendance($conn, $class_id, $date) {
 
         try {
+            
+            // TIME RULE (15 minutes late => block)
+            // $timeRange = self::getClassTimeRange($conn, (int)$class_id);
+            // if (!$timeRange) {
+            //     self::response(false, "Class time not found");
+            // }
+
+            // [$ok, $msg] = self::canTrackAttendanceByTime($timeRange, 15);
+            // if (!$ok) {
+            //     self::response(false, $msg);
+            // }
 
             if (self::isAttendanceRecordedToday($conn, $class_id, $date)) {
                 self::response(false, "⚠️ Attendance for today has already been recorded.");
             }
 
-            // 🔐 build lock status for each student
+            // build lock status for each student
             $lockStatus = self::getAttendanceLockStatus($conn, $class_id, $date);
 
             self::response(true, "✅ Ready to track attendance", $lockStatus);
@@ -401,29 +517,62 @@ class StudentController {
             $stu_id = (int)$stu['stu_id'];   // UI row key
             $tel    = $stu['tel'];           // real person key
 
-            /**
-             * =====================================================
-             * 0️⃣ ABSENCE BLOCK (ADMIN NOT YET APPROVED)
-             * =====================================================
-             */
-            if (self::hasActiveAbsenceBlock($conn, $stu_id, $class_id)) {
+            // BSENCE RULE CHECK (by TEL + COURSE) to support Basic IT duplicated students
+            $course_id = self::getCourseIdByClass($conn, $class_id);
+            $term      = self::getClassTermName($conn, $class_id);
 
-                $result[$stu_id] = [
-                    'status' => 'absent',   // 🔴 AUTO ABSENT BY RULE
-                    'locked' => true,
-                    'reason' => 'Absence limit exceeded. Please go to school for approval.'
-                ];
-                continue;
+            $absenceRule = AttendanceRule::getRuleForClass($conn, 'absence', $term);
+
+            if ($absenceRule && $absenceRule['is_active']) {
+
+                // Decide period from absence rule (NOT permission rule)
+                $period = $absenceRule['period_type'] === 'month' ? 'month' : 'week';
+                if ($absenceRule['period_type'] === 'both') $period = 'both';
+
+                $absCount = self::countAbsenceInPeriodByTel(
+                    $conn,
+                    $tel,
+                    $course_id,
+                    $period,
+                    $date,
+                    $term
+                );
+
+                $limit = (int)$absenceRule['limit_count'];
+
+                if ($absCount >= $limit) {
+
+                    // ✅ If admin already approved absence block -> allow tracking
+                    if (self::hasApprovedAbsenceBlockByTelCourse($conn, $tel, $course_id)) {
+                        $result[$stu_id] = [
+                            'status' => 'free',
+                            'locked' => false,
+                            'reason' => ''
+                        ];
+                        continue;
+                    }
+
+                    // ✅ Not approved yet -> lock + ensure block exists
+                    self::ensureAbsenceBlockByTelCourse($conn, $tel, $course_id);
+
+                    $result[$stu_id] = [
+                        'status' => 'absent',
+                        'locked' => true,
+                        'reason' => "Absence limit exceeded ($absCount/$limit). Please meet admin for approval."
+                    ];
+                    continue;
+                }
             }
+
 
             /**
              * =====================================================
              * 1️⃣ ADMIN-APPROVED PERMISSION (HARD LOCK)
              * =====================================================
              */
-            if (self::hasActiveApprovedPermission($conn, $stu_id, $date)) {
+            if (self::hasActiveApprovedPermissionByTelCourse($conn, $tel, $course_id, $date)) {
 
-                $reason = self::getActiveApprovedPermission($conn, $stu_id, $date);
+                $reason = self::getActiveApprovedPermissionByTelCourse($conn, $tel, $course_id, $date);
 
                 $result[$stu_id] = [
                     'status' => 'permission',
@@ -432,6 +581,7 @@ class StudentController {
                 ];
                 continue;
             }
+
 
             /**
              * =====================================================
@@ -472,38 +622,37 @@ class StudentController {
         return $result;
     }
 
-
-
-    private static function hasActiveApprovedPermission($conn, $stu_id, $date) {
-
+    private static function hasActiveApprovedPermissionByTelCourse($conn, $tel, $course_id, $date) {
         $stmt = $conn->prepare("
             SELECT 1
-            FROM student_permissions
-            WHERE stu_id = ?
-            AND status = 'approved'
-            AND ? BETWEEN start_date AND end_date
+            FROM student_permissions sp
+            JOIN students s ON sp.stu_id = s.id
+            JOIN classes  c ON sp.class_id = c.id
+            WHERE sp.status = 'approved'
+            AND s.tel = ?
+            AND c.course_id = ?
+            AND ? BETWEEN sp.start_date AND sp.end_date
             LIMIT 1
         ");
-
-        $stmt->bind_param("is", $stu_id, $date);
+        $stmt->bind_param("sis", $tel, $course_id, $date);
         $stmt->execute();
-
         return $stmt->get_result()->num_rows > 0;
     }
 
-    // 📝 Get real reason (UI only)
-    private static function getActiveApprovedPermission($conn, $stu_id, $date) {
+    private static function getActiveApprovedPermissionByTelCourse($conn, $tel, $course_id, $date) {
         $stmt = $conn->prepare("
-            SELECT reason
-            FROM student_permissions
-            WHERE stu_id = ?
-            AND status = 'approved'
-            AND ? BETWEEN start_date AND end_date
+            SELECT sp.reason
+            FROM student_permissions sp
+            JOIN students s ON sp.stu_id = s.id
+            JOIN classes  c ON sp.class_id = c.id
+            WHERE sp.status = 'approved'
+            AND s.tel = ?
+            AND c.course_id = ?
+            AND ? BETWEEN sp.start_date AND sp.end_date
             LIMIT 1
         ");
-        $stmt->bind_param("is", $stu_id, $date);
+        $stmt->bind_param("sis", $tel, $course_id, $date);
         $stmt->execute();
-
         $row = $stmt->get_result()->fetch_assoc();
         return $row ? $row['reason'] : null;
     }
@@ -619,6 +768,7 @@ class StudentController {
         }
     }
 
+
     // Record attendance in batch and update att_score
     public static function recordsAttBatch($conn, $students, $class_id) {
         if (empty($students) || !is_array($students)) {
@@ -628,33 +778,83 @@ class StudentController {
         try {
             $conn->begin_transaction();
 
-            // Insert with att_record_date
-            $stmt = $conn->prepare("
-                INSERT INTO student_records 
-                (stu_id, att_record_date, present, absent, permission, reason, class_id) 
+            // ✅ INSERT statement
+            $insertStmt = $conn->prepare("
+                INSERT INTO student_records
+                (stu_id, att_record_date, present, absent, permission, reason, class_id)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
             ");
-            if (!$stmt) throw new Exception("Prepare failed: " . $conn->error);
+            if (!$insertStmt) throw new Exception("Prepare insert failed: " . $conn->error);
 
-            $updateStmt = $conn->prepare("
+            // ✅ UPDATE statement (if already recorded today)
+            $updateRecordStmt = $conn->prepare("
+                UPDATE student_records
+                SET present = ?, absent = ?, permission = ?, reason = ?, att_record_date = ?
+                WHERE id = ?
+            ");
+            if (!$updateRecordStmt) throw new Exception("Prepare update record failed: " . $conn->error);
+
+            // ✅ Check existing today record
+            $checkTodayStmt = $conn->prepare("
+                SELECT id
+                FROM student_records
+                WHERE stu_id = ?
+                AND class_id = ?
+                AND DATE(att_record_date) = ?
+                LIMIT 1
+            ");
+            if (!$checkTodayStmt) throw new Exception("Prepare check today failed: " . $conn->error);
+
+            // ✅ Get tel once
+            $telStmt = $conn->prepare("SELECT tel FROM students WHERE id = ?");
+            if (!$telStmt) throw new Exception("Prepare tel failed: " . $conn->error);
+
+            // ✅ Update score (only on INSERT to avoid double deduction)
+            $updateScoreStmt = $conn->prepare("
                 UPDATE students
                 SET att_score = att_score - ?
                 WHERE id = ?
             ");
-            if (!$updateStmt) throw new Exception("Prepare update failed: " . $conn->error);
+            if (!$updateScoreStmt) throw new Exception("Prepare score update failed: " . $conn->error);
+
+            $today = date('Y-m-d');
 
             foreach ($students as $stu) {
                 $stu_id = $stu['stu_id'] ?? null;
-                // $present = $stu['present'] ?? 0;
-                // $absent = $stu['absent'] ?? 0;
-                // $permission = $stu['permission'] ?? 0;
-                // $reason = $stu['reason'] ?? "";
-
                 if (!$stu_id) continue;
+
                 $present    = (int)($stu['present'] ?? 0);
                 $absent     = (int)($stu['absent'] ?? 0);
                 $permission = (int)($stu['permission'] ?? 0);
                 $reason     = trim($stu['reason'] ?? "");
+
+                // =====================================================
+                // ✅ 1) FORCE ADMIN-APPROVED PERMISSION (TEL + COURSE)
+                // =====================================================
+                $telStmt->bind_param("i", $stu_id);
+                $telStmt->execute();
+                $telRow = $telStmt->get_result()->fetch_assoc();
+                $tel = $telRow['tel'] ?? null;
+
+                if ($tel) {
+                    $course_id = self::getCourseIdByClass($conn, $class_id);
+
+                    if ($course_id && self::hasActiveApprovedPermissionByTelCourse($conn, $tel, $course_id, $today)) {
+                        // ✅ FORCE PM
+                        $present = 0;
+                        $absent = 0;
+                        $permission = 1;
+
+                        $adminReason = self::getActiveApprovedPermissionByTelCourse($conn, $tel, $course_id, $today);
+                        if (!empty($adminReason)) {
+                            $reason = $adminReason;
+                        }
+                    }
+                }
+
+                // =====================================================
+                // ✅ 2) NORMAL RULE PRIORITY (P > PM > A)
+                // =====================================================
 
                 // 🔴 DEFAULT: if nothing selected → ABSENT
                 if ($present === 0 && $permission === 0) {
@@ -672,40 +872,75 @@ class StudentController {
                     $absent = 0;
                     $permission = 0;
                 }
-                // ⛔ BLOCK ILLEGAL PERMISSION
+
+                // =====================================================
+                // ✅ 3) BLOCK ILLEGAL PERMISSION (LIMIT CHECK)
+                // (skip this if admin-approved permission already forced)
+                // =====================================================
                 if ($permission == 1) {
 
-                    // 🔑 GET TEL FIRST (REAL PERSON KEY)
-                    $telStmt = $conn->prepare("SELECT tel FROM students WHERE id = ?");
-                    $telStmt->bind_param("i", $stu_id);
-                    $telStmt->execute();
-                    $telRow = $telStmt->get_result()->fetch_assoc();
-                    $tel = $telRow['tel'] ?? null;
+                    // if tel is missing, re-fetch
+                    if (!$tel) {
+                        $telStmt->bind_param("i", $stu_id);
+                        $telStmt->execute();
+                        $telRow = $telStmt->get_result()->fetch_assoc();
+                        $tel = $telRow['tel'] ?? null;
+                    }
 
                     if (!$tel) {
                         throw new Exception("Student tel not found for ID {$stu_id}");
                     }
 
-                    $allowed = self::checkPermissionRule(
-                        $conn,
-                        $tel,        // ✅ FIXED
-                        $class_id,
-                        date('Y-m-d')
-                    );
+                    // ✅ if admin-approved permission exists, don't block
+                    $course_id = self::getCourseIdByClass($conn, $class_id);
+                    $isAdminApproved = ($course_id && self::hasActiveApprovedPermissionByTelCourse($conn, $tel, $course_id, $today));
 
-                    if (!$allowed) {
-                        throw new Exception(
-                            "❌ Permission limit exceeded for student ID {$stu_id}"
-                        );
+                    if (!$isAdminApproved) {
+                        $allowed = self::checkPermissionRule($conn, $tel, $class_id, $today);
+                        if (!$allowed) {
+                            throw new Exception("❌ Permission limit exceeded for student ID {$stu_id}");
+                        }
                     }
                 }
 
+                // =====================================================
+                // ✅ 4) INSERT OR UPDATE (TODAY)
+                // =====================================================
+                $att_record_date = $today . ' ' . date('H:i:s');
 
-                // ✅ Save attendance
-                $att_record_date = date('Y-m-d H:i:s');
+                // check if record exists today
+                $checkTodayStmt->bind_param("iis", $stu_id, $class_id, $today);
+                $checkTodayStmt->execute();
+                $exist = $checkTodayStmt->get_result()->fetch_assoc();
 
-                $stmt->bind_param(
-                    "isiiiss",
+                if ($exist) {
+                    // ✅ UPDATE today's record (so A can become PM)
+                    $record_id = (int)$exist['id'];
+
+                    $updateRecordStmt->bind_param(
+                        "iiissi",
+                        $present,
+                        $absent,
+                        $permission,
+                        $reason,
+                        $att_record_date,
+                        $record_id
+                    );
+
+                    if (!$updateRecordStmt->execute()) {
+                        throw new Exception("Update failed for student $stu_id");
+                    }
+
+                    // ✅ still auto-block after update (optional)
+                    self::autoBlockStudent($conn, $stu_id, $class_id, $today);
+
+                    // ✅ DO NOT deduct score again on update
+                    continue;
+                }
+
+                // ✅ INSERT new record
+                $insertStmt->bind_param(
+                    "isiiisi",
                     $stu_id,
                     $att_record_date,
                     $present,
@@ -715,26 +950,23 @@ class StudentController {
                     $class_id
                 );
 
-                if (!$stmt->execute()) {
+                if (!$insertStmt->execute()) {
                     throw new Exception("Insert failed for student $stu_id");
                 }
 
-                self::autoBlockStudent(
-                    $conn,
-                    $stu_id,
-                    $class_id,
-                    date('Y-m-d')
-                );
+                // auto-block after insert
+                self::autoBlockStudent($conn, $stu_id, $class_id, $today);
 
-                // score deduction
+                // =====================================================
+                // ✅ 5) SCORE DEDUCTION (ONLY ON INSERT)
+                // =====================================================
                 $deduction = ($absent * 1.0) + ($permission * 0.5);
 
                 if ($deduction > 0) {
-                    $updateStmt->bind_param("di", $deduction, $stu_id);
-                    $updateStmt->execute();
+                    $updateScoreStmt->bind_param("di", $deduction, $stu_id);
+                    $updateScoreStmt->execute();
                 }
             }
-
 
             $conn->commit();
             self::response(true, "Attendance recorded and att_score updated successfully");
@@ -743,6 +975,23 @@ class StudentController {
             $conn->rollback();
             self::response(false, $e->getMessage());
         }
+    }
+
+    private static function hasApprovedAbsenceBlockByTelCourse($conn, $tel, $course_id) {
+        $stmt = $conn->prepare("
+            SELECT 1
+            FROM student_attendance_block b
+            JOIN students s ON b.stu_id = s.id
+            JOIN classes  c ON b.class_id = c.id
+            WHERE b.block_type = 'absence'
+            AND b.is_approved = 1
+            AND s.tel = ?   
+            AND c.course_id = ?
+            LIMIT 1
+        ");
+        $stmt->bind_param("si", $tel, $course_id);
+        $stmt->execute();
+        return $stmt->get_result()->num_rows > 0;
     }
 
 
@@ -877,7 +1126,6 @@ class StudentController {
             self::response(false, $e->getMessage());
         }
     }
-
 
     public static function getStudentScoresByClass($conn, $class_id) {
         if (empty($class_id)) {
@@ -1096,7 +1344,6 @@ class StudentController {
         }
     }
 
-
     public static function transferStudentWithoutRemove($conn, $stu_id, $transferTo) {
         try {
             $transferTo = intval($transferTo);
@@ -1274,7 +1521,6 @@ class StudentController {
             self::response(false, $e->getMessage());
         }
     }
-
 
     public static function approveStudent($conn, $studentId, $class_id) {
         try {
@@ -1459,7 +1705,55 @@ class StudentController {
         }
     }
 
+    // timeRange example: "9:00 am - 10:30 am"
+    private static function canTrackAttendanceByTime(string $timeRange, int $graceMinutes = 15): array
+    {
+        date_default_timezone_set('Asia/Phnom_Penh');
 
+        $today = date('Y-m-d');
+        $nowTs = time();
+
+        $parts = array_map('trim', explode('-', $timeRange));
+        if (count($parts) < 2) {
+            return [false, "Invalid class time format"];
+        }
+
+        $startStr = $parts[0]; // "9:00 am"
+        $startTs = strtotime($today . ' ' . $startStr);
+
+        if ($startTs === false) {
+            return [false, "Cannot parse class start time"];
+        }
+
+        $lateMinutes = (int)floor(($nowTs - $startTs) / 60);
+
+        if ($lateMinutes < 0) {
+            return [false, "Class has not started yet"];
+        }
+
+        if ($lateMinutes > $graceMinutes) {
+            return [false, "Attendance closed (late more than {$graceMinutes} minutes)"];
+        }
+
+        return [true, "Attendance open"];
+    }
+
+    private static function getClassTimeRange($conn, int $class_id): ?string
+    {
+        // ✅ get time from times table (because classes.time_id = times.id)
+        $stmt = $conn->prepare("
+            SELECT ti.time
+            FROM classes c
+            JOIN times ti ON ti.id = c.time_id
+            WHERE c.id = ?
+            LIMIT 1
+        ");
+        $stmt->bind_param("i", $class_id);
+        $stmt->execute();
+        $row = $stmt->get_result()->fetch_assoc();
+
+        return $row ? trim($row['time']) : null;
+    }
 
 }
 ?>

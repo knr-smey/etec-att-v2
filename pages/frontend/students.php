@@ -1073,8 +1073,6 @@ $class_id = isset($_GET['class_id']) ? intval($_GET['class_id']) : 0;
             }
         });
 
-
-
         $(document).on('keyup', '.reason-input', function(){
             const $input = $(this);
             if($input.val().trim() !== '') $input.removeClass('border-danger').siblings('.errorAlert').addClass('d-none').text('');

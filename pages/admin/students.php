@@ -352,7 +352,7 @@ $(document).ready(function () {
 
     $("#transfer_student_id").val(stuId);
     $("#transfer_teacher").html(`<option>Loading...</option>`);
-    $("#transfer_class").html(`<option>Select class</option>`).prop("disabled", true);
+    $("#transfer_class_list").html(`<div class="text-muted small">Select teacher first</div>`);
 
     $("#transferModal").modal("show");
 
@@ -700,6 +700,7 @@ $(document).ready(function () {
   $("#permissionForm").on("submit", function (e) {
     e.preventDefault();
 
+    const $form = $(this); // ✅ define it here
     const $submitBtn = $(this).find('button[type="submit"]');
     const originalText = $submitBtn.html();
     $submitBtn.html('<span class="spinner-border spinner-border-sm me-1 text-white"></span> Submitting...').prop('disabled', true);

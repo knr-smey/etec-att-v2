@@ -228,45 +228,67 @@ class StudentPermission
     public static function fetchAbsenceAndPermissionForAdmin($conn)
     {
         $sql = "
-            (
-                SELECT
-                    sab.id            AS request_id,
-                    'absence'         AS request_type,
-                    s.full_name       AS student_name,
-                    co.course         AS course,
-                    c.id              AS class_id,
-                    NULL              AS start_date,
-                    NULL              AS end_date,
-                    'Exceeded absence limit' AS reason,
-                    sab.is_approved   AS status,
-                    sab.blocked_at    AS created_at
-                FROM student_attendance_block sab
-                JOIN students s ON s.id = sab.stu_id
-                JOIN classes c ON c.id = sab.class_id
-                JOIN courses co ON co.id = c.course_id
-            )
+            SELECT
+                t.*,
 
-            UNION ALL
+                -- ✅ TOTAL APPROVED (ALL SYSTEM)
+                SUM(CASE WHEN t.request_type = 'absence' AND t.status = 1 THEN 1 ELSE 0 END) OVER () 
+                    AS approved_absence_count,
 
-            (
-                SELECT
-                    sp.id             AS request_id,
-                    'permission'      AS request_type,
-                    s.full_name       AS student_name,
-                    co.course         AS course,
-                    c.id              AS class_id,
-                    sp.start_date,
-                    sp.end_date,
-                    sp.reason,
-                    sp.status,
-                    sp.created_at
-                FROM student_permissions sp
-                JOIN students s ON s.id = sp.stu_id
-                JOIN classes c ON c.id = sp.class_id
-                JOIN courses co ON co.id = c.course_id
-            )
+                SUM(CASE WHEN t.request_type = 'permission' AND t.status = 'approved' THEN 1 ELSE 0 END) OVER () 
+                    AS approved_permission_count,
 
-            ORDER BY created_at DESC
+                -- ✅ APPROVED COUNT PER STUDENT
+                SUM(CASE 
+                    WHEN t.request_type = 'absence' AND t.status = 1 THEN 1 ELSE 0 
+                END) OVER (PARTITION BY t.stu_id) AS absence_approved_by_student,
+
+                SUM(CASE 
+                    WHEN t.request_type = 'permission' AND t.status = 'approved' THEN 1 ELSE 0 
+                END) OVER (PARTITION BY t.stu_id) AS permission_approved_by_student
+
+            FROM (
+                (
+                    SELECT
+                        s.id              AS stu_id,
+                        sab.id            AS request_id,
+                        'absence'         AS request_type,
+                        s.full_name       AS student_name,
+                        co.course         AS course,
+                        c.id              AS class_id,
+                        NULL              AS start_date,
+                        NULL              AS end_date,
+                        'Exceeded absence limit' AS reason,
+                        sab.is_approved   AS status,
+                        sab.blocked_at    AS created_at
+                    FROM student_attendance_block sab
+                    JOIN students s ON s.id = sab.stu_id
+                    JOIN classes c ON c.id = sab.class_id
+                    JOIN courses co ON co.id = c.course_id
+                )
+
+                UNION ALL
+
+                (
+                    SELECT
+                        s.id              AS stu_id,
+                        sp.id             AS request_id,
+                        'permission'      AS request_type,
+                        s.full_name       AS student_name,
+                        co.course         AS course,
+                        c.id              AS class_id,
+                        sp.start_date,
+                        sp.end_date,
+                        sp.reason,
+                        sp.status,
+                        sp.created_at
+                    FROM student_permissions sp
+                    JOIN students s ON s.id = sp.stu_id
+                    JOIN classes c ON c.id = sp.class_id
+                    JOIN courses co ON co.id = c.course_id
+                )
+            ) t
+            ORDER BY t.created_at DESC
         ";
 
         $result = $conn->query($sql);
@@ -275,8 +297,32 @@ class StudentPermission
             self::response(false, "Failed to fetch requests");
         }
 
-        self::response(true, "Requests fetched", $result->fetch_all(MYSQLI_ASSOC));
+        $rows = $result->fetch_all(MYSQLI_ASSOC);
+
+        if (empty($rows)) {
+            self::response(true, "Requests fetched", [
+                "counts" => [
+                    "absence_approved" => 0,
+                    "permission_approved" => 0,
+                    "total_approved" => 0
+                ],
+                "list" => []
+            ]);
+        }
+
+        $absenceCount    = (int)$rows[0]['approved_absence_count'];
+        $permissionCount = (int)$rows[0]['approved_permission_count'];
+
+        self::response(true, "Requests fetched", [
+            "counts" => [
+                "absence_approved"    => $absenceCount,
+                "permission_approved" => $permissionCount,
+                "total_approved"      => $absenceCount + $permissionCount
+            ],
+            "list" => $rows
+        ]);
     }
+
 
     public static function approveAbsenceBlock($conn)
     {
@@ -286,17 +332,49 @@ class StudentPermission
             self::response(false, "Block ID missing");
         }
 
-        $stmt = $conn->prepare("
-            DELETE FROM student_attendance_block
-            WHERE id = ?
-        ");
-        $stmt->bind_param("i", $id);
+        try {
+            // 1) Find tel + course_id for this block
+            $stmt = $conn->prepare("
+                SELECT s.tel, c.course_id
+                FROM student_attendance_block b
+                JOIN students s ON b.stu_id = s.id
+                JOIN classes  c ON b.class_id = c.id
+                WHERE b.id = ?
+                LIMIT 1
+            ");
+            $stmt->bind_param("i", $id);
+            $stmt->execute();
+            $info = $stmt->get_result()->fetch_assoc();
 
-        if (!$stmt->execute()) {
-            self::response(false, "Failed to unlock student");
+            if (!$info) {
+                self::response(false, "Block not found");
+            }
+
+            $tel = $info['tel'];
+            $course_id = (int)$info['course_id'];
+
+            // 2) Approve all blocks for same person (tel) in same course
+            $upd = $conn->prepare("
+                UPDATE student_attendance_block b
+                JOIN students s ON b.stu_id = s.id
+                JOIN classes  c ON b.class_id = c.id
+                SET b.is_approved = 1
+                WHERE b.block_type = 'absence'
+                AND b.is_approved = 0
+                AND s.tel = ?
+                AND c.course_id = ?
+            ");
+            $upd->bind_param("si", $tel, $course_id);
+
+            if (!$upd->execute()) {
+                self::response(false, "Failed to approve absence block");
+            }
+
+            self::response(true, "Student unlocked successfully");
+
+        } catch (Exception $e) {
+            self::response(false, $e->getMessage());
         }
-
-        self::response(true, "Student unlocked successfully");
     }
 
 }
