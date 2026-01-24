@@ -102,125 +102,150 @@ $formatted_date = $end_date ? date('d-m-Y', strtotime($end_date)) : '';
 
 <script>
 $(document).ready(function() {
-    const classId = <?php echo $class_id; ?>;
+  const classId = <?php echo $class_id; ?>;
 
-    // Khmer month names
-    const khMonths = [
-        "មករា", "កុម្ភៈ", "មីនា", "មេសា", "ឧសភា", "មិថុនា",
-        "កក្កដា", "សីហា", "កញ្ញា", "តុលា", "វិច្ឆិកា", "ធ្នូ"
-    ];
+  // Khmer month names
+  const khMonths = [
+    "មករា", "កុម្ភៈ", "មីនា", "មេសា", "ឧសភា", "មិថុនា",
+    "កក្កដា", "សីហា", "កញ្ញា", "តុលា", "វិច្ឆិកា", "ធ្នូ"
+  ];
 
-    // Convert Arabic digits to Khmer digits
-    function toKhmerDigits(number) {
-        const khDigits = ['០','១','២','៣','៤','៥','៦','៧','៨','៩'];
-        return number.toString().split('').map(d => khDigits[d] || d).join('');
+  function toKhmerDigits(number) {
+    const khDigits = ['០','១','២','៣','៤','៥','៦','៧','៨','៩'];
+    return number.toString().split('').map(d => khDigits[d] || d).join('');
+  }
+
+  function formatKhmerDate(date = new Date()) {
+    const day = toKhmerDigits(date.getDate());
+    const month = khMonths[date.getMonth()];
+    const year = toKhmerDigits(date.getFullYear());
+    return `ធ្វើនៅភ្នំពេញ, ថ្ងៃទី ${day} ខែ ${month} ឆ្នាំ ${year}`;
+  }
+
+  $('#dynamic-date-signature').html(`
+    <p class="mb-1">${formatKhmerDate()}</p>
+    <p>ហត្ថលេខានិងឈ្មោះគ្រូ</p>
+  `);
+
+  // PDF download (keep same)
+  $('#downloadBtn').click(function() {
+    const element = document.getElementById("content");
+    const opt = {
+      margin: 0.2,
+      filename: 'class_result.pdf',
+      image: { type: 'jpeg', quality: 1 },
+      html2canvas: { scale: 3, useCORS: true },
+      jsPDF: { unit: 'in', format: 'a4', orientation: 'landscape' }
+    };
+    html2pdf().set(opt).from(element).save();
+  });
+
+  // ---------------------------
+  // DISCOUNT RULES
+  // ---------------------------
+  let discountRules = [];
+
+  function getRuleByScore(score) {
+    score = parseFloat(score || 0);
+    for (const r of discountRules) {
+      const min = parseFloat(r.min_score);
+      const max = parseFloat(r.max_score);
+      if (score >= min && score <= max) return r;
     }
+    return null;
+  }
 
-    // Format current date in Khmer
-    function formatKhmerDate(date = new Date()) {
-        const day = toKhmerDigits(date.getDate());
-        const month = khMonths[date.getMonth()];
-        const year = toKhmerDigits(date.getFullYear());
-        return `ធ្វើនៅភ្នំពេញ, ថ្ងៃទី ${day} ខែ ${month} ឆ្នាំ ${year}`;
-    }
-
-    // Insert formatted Khmer date
-    $('#dynamic-date-signature').html(`
-        <p class="mb-1">${formatKhmerDate()}</p>
-        <p>ហត្ថលេខានិងឈ្មោះគ្រូ</p>
-    `);
-
-    // Fetch class info via AJAX
+  // ---------------------------
+  // LOAD CLASS + STUDENTS (after rules loaded)
+  // ---------------------------
+  function loadClassStudents() {
     $.ajax({
-        url: 'api.php',
-        method: 'GET',
-        data: { endpoint: 'getClassWithStudent', class_id: classId },
-        dataType: 'json',
-        success: function(res) {
-            console.log(res);
+      url: 'api.php',
+      method: 'GET',
+      data: { endpoint: 'getClassWithStudent', class_id: classId },
+      dataType: 'json',
+      success: function(res) {
 
-            if(res.status) {
-                const classData = res.data.class;
-                const students = res.data.students;
+        if(!res.status) return alert(res.message || "Failed");
 
-                // Populate class info
-                $('#course-name').text(classData.course_name || 'N/A');
-                $('#class-time').text(classData.time || 'N/A');
-                $('#teacher-name').text(classData.instructor_name || 'N/A');
+        const classData = res.data.class;
+        const students = res.data.students;
 
-                // Populate students table
-                const tbody = $('#student-rows');
-                tbody.empty(); // clear existing rows
+        $('#course-name').text(classData.course_name || 'N/A');
+        $('#class-time').text(classData.time || 'N/A');
+        $('#teacher-name').text(classData.instructor_name || 'N/A');
 
-                if(students.length === 0) {
-                    tbody.append(`
-                        <tr>
-                            <td colspan="9">No students found</td>
-                        </tr>
-                    `);
-                } else {
-                    students.forEach((stu, index) => {
-                        tbody.append(`
-                        <tr class="small font-custom">
-                            <td>${index + 1}</td>
-                            <td class="fw-bold text-start ps-3">${stu.full_name}</td>
-                            <td>${stu.gender}</td>
-                            <td>${stu.att_score || '0'}</td>
-                            <td>${stu.act_score || '0'}</td>
-                            <td>${stu.exam_score || '0'}</td>
-                            <td>
-                                ${(
-                                    parseFloat(stu.att_score || 0) +
-                                    parseFloat(stu.act_score || 0) +
-                                    parseFloat(stu.exam_score || 0)
-                                )}
-                            </td>
-                            <td style="color: ${
-                                (parseFloat(stu.att_score || 0) +
-                                parseFloat(stu.act_score || 0) +
-                                parseFloat(stu.exam_score || 0)) >= 50
-                                    ? 'green'
-                                    : 'red'
-                            };">
-                                ${
-                                    (parseFloat(stu.att_score || 0) +
-                                    parseFloat(stu.act_score || 0) +
-                                    parseFloat(stu.exam_score || 0)) >= 50
-                                        ? 'Pass'
-                                        : 'Fail'
-                                }
-                            </td>
-                            <td></td>
-                        </tr>
-                    `);
+        const tbody = $('#student-rows');
+        tbody.empty();
 
-                    });
-                }
-
-            } else {
-                alert(res.message);
-            }
-        },
-        error: function(err) {
-            console.error(err);
-            alert("Failed to fetch class data.");
+        if(!students || students.length === 0) {
+          tbody.append(`<tr><td colspan="9">No students found</td></tr>`);
+          return;
         }
 
-    });
+        students.forEach((stu, index) => {
+          const att  = parseFloat(stu.att_score || 0);
+          const act  = parseFloat(stu.act_score || 0);
+          const exam = parseFloat(stu.exam_score || 0);
 
-    // PDF download
-    $('#downloadBtn').click(function() {
-        const element = document.getElementById("content");
-        const opt = {
-            margin: 0.2,
-            filename: 'class_result.pdf',
-            image: { type: 'jpeg', quality: 1 },
-            html2canvas: { scale: 3, useCORS: true },
-            jsPDF: { unit: 'in', format: 'a4', orientation: 'landscape' }
-        };
-        html2pdf().set(opt).from(element).save();
+          const total = att + act + exam;
+          const pass = total >= 50;
+
+          const rule = getRuleByScore(total);
+          let otherText = '';
+            if (rule) {
+            const percent = Number(rule.discount_percent);
+            otherText = `${rule.title} <br> (${Number.isInteger(percent) ? percent : percent}% dis)`;
+          }
+
+          tbody.append(`
+            <tr class="small font-custom">
+              <td>${index + 1}</td>
+              <td class="fw-bold text-start ps-3">${stu.full_name}</td>
+              <td>${stu.gender}</td>
+              <td>${stu.att_score || '0'}</td>
+              <td>${stu.act_score || '0'}</td>
+              <td>${stu.exam_score || '0'}</td>
+              <td>${total}</td>
+
+              <td style="color:${pass ? 'green' : 'red'};">
+                ${pass ? 'Pass' : 'Fail'}
+              </td>
+
+              <td>${otherText}</td>
+            </tr>
+          `);
+        });
+
+      },
+      error: function(err) {
+        console.error(err);
+        alert("Failed to fetch class data.");
+      }
     });
+  }
+
+  // ---------------------------
+  // 1) Load discount rules first
+  // 2) Then load class students
+  // ---------------------------
+  $.ajax({
+    url: 'api.php',
+    method: 'GET',
+    data: { endpoint: 'get_discount_rules' },
+    dataType: 'json',
+    success: function(ruleRes) {
+      discountRules = (ruleRes.status && Array.isArray(ruleRes.data)) ? ruleRes.data : [];
+      loadClassStudents();
+    },
+    error: function() {
+      // still show students even if rules fail
+      loadClassStudents();
+    }
+  });
+
 });
 </script>
+
 </body>
 </html>

@@ -109,12 +109,18 @@
                                 Permission Rule
                             </li>
                         </a>
-                         <a href="pages/admin/time.php" class="btn text-white w-100 text-start my-1 border-0 fs-6 nav-link-ajax position-relative">
+                        <a href="pages/admin/discountRule.php" class="btn text-white w-100 text-start my-1 border-0 fs-6 nav-link-ajax position-relative">
+                            <li class="m-0">
+                                <i class="bi bi-tag-fill me-2"></i>
+                                Discount Rule
+                            </li>
+                        </a>
+                        <!-- <a href="pages/admin/time.php" class="btn text-white w-100 text-start my-1 border-0 fs-6 nav-link-ajax position-relative">
                             <li class="m-0">
                                 <i class="bi bi-alarm me-2"></i>
                                 Time Control
                             </li>
-                        </a>
+                        </a> -->
                         <a href="pages/admin/students.php" class="btn text-white w-100 text-start my-1  border-0 fs-6 nav-link-ajax">
                             <li class="m-0">
                                 <i class="bi bi-people-fill me-2"></i>

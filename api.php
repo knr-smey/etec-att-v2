@@ -14,6 +14,7 @@ require_once(__DIR__ . '/controllers/backend/BuildingController.php');
 require_once(__DIR__ . '/controllers/backend/InstructorController.php');
 require_once(__DIR__ . '/controllers/backend/ClassAndStuController.php');
 require_once(__DIR__ . '/controllers/backend/AttendanceRule.php');
+require_once(__DIR__ . '/controllers/backend/DiscountController.php');
 
 
 require_once(__DIR__ . '/controllers/frontend/ClassController.php');
@@ -1049,6 +1050,33 @@ switch ($endpoint) {
         if ($method !== 'GET') response(false, "Method not allowed");
         StudentPermission::fetchAbsenceAndPermissionForAdmin($conn);
     break;
+    case 'get_discounts':
+        DiscountController::getAll($conn);
+        break;
+
+    case 'create_discount':
+        if ($method !== 'POST') response(false, "Method not allowed");
+        DiscountController::create($conn, $_POST);
+        break;
+
+    case 'update_discount':
+        if ($method !== 'POST') response(false, "Method not allowed");
+        DiscountController::update($conn, $_POST);
+        break;
+
+    case 'delete_discount':
+        if ($method !== 'POST') response(false, "Method not allowed");
+        DiscountController::delete($conn, $_POST['id'] ?? 0);
+        break;
+
+    case 'get_discount_rule':
+        DiscountController::getRuleForScore($conn, $_GET['score'] ?? 0);
+    break;
+    
+    case 'get_discount_rules':
+        DiscountController::getActiveRules($conn);
+    break;
+
 
     default:
         response(false, "Invalid endpoint");
