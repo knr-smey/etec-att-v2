@@ -1074,6 +1074,174 @@ class StudentController {
             self::response(false, $e->getMessage());
         }
     }
+    
+    // public static function getStudentsAttendanceSummary($conn, $class_id)
+    // {
+    //     if (empty($class_id)) {
+    //         self::response(false, "Class ID is required");
+    //     }
+
+    //     try {
+    //         // =========================================================
+    //         // 1) GET ACTIVE ABSENCE RULE (latest, start_date <= today)
+    //         // =========================================================
+    //         $ruleStmt = $conn->prepare("
+    //             SELECT limit_count, period_type, start_date
+    //             FROM attendance_rules
+    //             WHERE rule_type = 'absence'
+    //             AND is_active = 1
+    //             AND start_date <= CURDATE()
+    //             ORDER BY start_date DESC, id DESC
+    //             LIMIT 1
+    //         ");
+    //         $ruleStmt->execute();
+    //         $rule = $ruleStmt->get_result()->fetch_assoc();
+
+    //         $limitCount = null;
+    //         $startDate  = null;
+    //         $endDate    = null;
+
+    //         if ($rule) {
+    //             $limitCount = (int)$rule['limit_count'];
+    //             $startDate  = $rule['start_date']; // YYYY-MM-DD
+
+    //             // calculate endDate based on period_type
+    //             if ($rule['period_type'] === 'week') {
+    //                 $endDate = date('Y-m-d', strtotime($startDate . ' +7 days'));
+    //             } elseif ($rule['period_type'] === 'month') {
+    //                 $endDate = date('Y-m-d', strtotime($startDate . ' +1 month'));
+    //             } else {
+    //                 // both => no end date
+    //                 $endDate = null;
+    //             }
+    //         }
+
+    //         // =========================================================
+    //         // 2) MAIN QUERY (WITH OR WITHOUT RULE FILTER)
+    //         // =========================================================
+    //         if ($rule) {
+    //             // ✅ Rule exists: count from startDate (+ window if week/month)
+    //             $sql = "
+    //                 SELECT 
+    //                     s.id AS stu_id,
+    //                     s.full_name,
+    //                     s.class_id,
+    //                     s.gender,
+    //                     s.tel,
+    //                     s.att_score,
+    //                     s.act_score,
+    //                     s.exam_score,
+    //                     s.approval,
+    //                     s.created_at,
+
+    //                     COALESCE(SUM(sr.present), 0)    AS present,
+    //                     COALESCE(SUM(sr.absent), 0)     AS absent,
+    //                     COALESCE(SUM(sr.permission), 0) AS permission,
+
+    //                     ? AS absence_limit,
+    //                     CASE 
+    //                         WHEN COALESCE(SUM(sr.absent), 0) > ? THEN 1 ELSE 0
+    //                     END AS exceeded_absence
+
+    //                 FROM students s
+    //                 LEFT JOIN student_records sr
+    //                 ON sr.stu_id   = s.id
+    //                 AND sr.class_id = s.class_id
+    //                 AND sr.att_record_date >= ?
+    //                 AND ( ? IS NULL OR sr.att_record_date < ? )
+
+    //                 WHERE s.class_id = ?
+    //                 ORDER BY s.id DESC
+    //                 GROUP BY 
+    //                     s.id, s.full_name, s.class_id, s.gender, s.tel,
+    //                     s.att_score, s.act_score, s.exam_score,
+    //                     s.approval, s.created_at
+    //             ";
+
+    //             $stmt = $conn->prepare($sql);
+
+    //             // bind: absence_limit, absence_limit, startDate, endDate, endDate, class_id
+    //             // types: i i s s s i  (endDate can be null => still bind as string)
+    //             $stmt->bind_param(
+    //                 "iisssi",
+    //                 $limitCount,
+    //                 $limitCount,
+    //                 $startDate,
+    //                 $endDate,
+    //                 $endDate,
+    //                 $class_id
+    //             );
+
+    //         } else {
+    //             // ✅ No rule exists: normal count (all time), no limit checking
+    //             $sql = "
+    //                 SELECT 
+    //                     s.id AS stu_id,
+    //                     s.full_name,
+    //                     s.class_id,
+    //                     s.gender,
+    //                     s.tel,
+    //                     s.att_score,
+    //                     s.act_score,
+    //                     s.exam_score,
+    //                     s.approval,
+    //                     s.created_at,
+
+    //                     COALESCE(SUM(sr.present), 0)    AS present,
+    //                     COALESCE(SUM(sr.absent), 0)     AS absent,
+    //                     COALESCE(SUM(sr.permission), 0) AS permission,
+
+    //                     NULL AS absence_limit,
+    //                     0 AS exceeded_absence
+
+    //                 FROM students s
+    //                 LEFT JOIN student_records sr
+    //                 ON sr.stu_id   = s.id
+    //                 AND sr.class_id = s.class_id
+
+    //                 WHERE s.class_id = ?
+    //                 ORDER BY s.id DESC
+    //                 GROUP BY 
+    //                     s.id, s.full_name, s.class_id, s.gender, s.tel,
+    //                     s.att_score, s.act_score, s.exam_score,
+    //                     s.approval, s.created_at
+    //             ";
+
+    //             $stmt = $conn->prepare($sql);
+    //             $stmt->bind_param("i", $class_id);
+    //         }
+
+    //         $stmt->execute();
+    //         $result = $stmt->get_result();
+
+    //         $students = [];
+    //         $exceededCount = 0;
+
+    //         while ($row = $result->fetch_assoc()) {
+    //             if (!empty($row['exceeded_absence']) && (int)$row['exceeded_absence'] === 1) {
+    //                 $exceededCount++;
+    //             }
+    //             $students[] = $row;
+    //         }
+
+    //         // =========================================================
+    //         // 3) RESPONSE MESSAGE (if exceeded)
+    //         // =========================================================
+    //         if ($exceededCount > 0) {
+    //             self::response(
+    //                 true,
+    //                 "⚠️ {$exceededCount} student(s) exceeded absence limit. Please meet admin for approval.",
+    //                 $students
+    //             );
+    //         } else {
+    //             self::response(true, "Students attendance summary fetched successfully", $students);
+    //         }
+
+    //     } catch (Exception $e) {
+    //         self::response(false, $e->getMessage());
+    //     }
+    // }
+
 
     // Update student information
     public static function updateStudent($conn, $stu_id, $full_name, $gender, $tel) {
@@ -1706,7 +1874,7 @@ class StudentController {
     }
 
     // timeRange example: "9:00 am - 10:30 am"
-    private static function canTrackAttendanceByTime(string $timeRange, int $graceMinutes = 15): array
+    private static function canTrackAttendanceByTime(string $timeRange, int $graceMinutes = 20): array
     {
         date_default_timezone_set('Asia/Phnom_Penh');
 

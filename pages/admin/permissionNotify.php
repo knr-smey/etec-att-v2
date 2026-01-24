@@ -60,22 +60,67 @@
   <nav class="mt-3">
     <ul id="pagination" class="pagination pagination-sm justify-content-center"></ul>
   </nav>
+
+  <!-- Approve Modal (Admin Comment Required) -->
+  <div class="modal fade" id="approveModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content border-0 shadow">
+        <div class="modal-header">
+          <h5 class="modal-title fw-semibold">Approve Request</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+
+        <div class="modal-body">
+          <div class="mb-2 text-muted small">
+            Student: <b id="modalStudentName">-</b><br>
+            Type: <b id="modalReqType">-</b>
+          </div>
+
+          <label class="form-label fw-semibold">Admin Comment <span class="text-danger">*</span></label>
+          <textarea
+            id="adminComment"
+            class="form-control"
+            rows="3"
+            placeholder="Write reason why you approve..."
+          ></textarea>
+
+          <div id="modalError" class="alert alert-danger py-2 mt-3 d-none"></div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
+          <button type="button" class="btn btn-success" id="btnModalApprove">
+            Approve
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
 </section>
 
 <script>
 $(function () {
 
   let allData = [];
-  let filteredData = []; // ✅ NEW: data after search filter
+  let filteredData = [];
   let currentPage = 1;
   const perPage = 8;
   let firstLoad = true;
 
   /* ===============================
+     ✅ BOOTSTRAP MODAL
+  =============================== */
+  const approveModalEl = document.getElementById('approveModal');
+  const approveModal = approveModalEl ? new bootstrap.Modal(approveModalEl) : null;
+
+  // store selected approve info
+  let selectedApprove = { id: null, type: null, btn: null, row: null };
+
+  /* ===============================
      FETCH DATA
   =============================== */
   function fetchRequests() {
-
     if (firstLoad) {
       $('#pendinPermission').html(`
         <tr>
@@ -101,7 +146,6 @@ $(function () {
         const counts = res.data.counts || {};
         const list   = res.data.list || [];
 
-        // ✅ Render top counts
         setTopCounts(
           counts.absence_approved ?? 0,
           counts.permission_approved ?? 0
@@ -110,17 +154,15 @@ $(function () {
         if (!Array.isArray(list) || !list.length) {
           allData = [];
           filteredData = [];
-          renderEmpty(false); // don't reset counts (already set above)
+          renderEmpty(false);
           updateSearchHint();
           return;
         }
 
         allData = list;
-        applySearch(); // ✅ NEW: will set filteredData
+        applySearch();
       })
-      .fail(() => {
-        renderError();
-      });
+      .fail(() => renderError());
   }
 
   function setTopCounts(absence, permission) {
@@ -133,7 +175,7 @@ $(function () {
   }
 
   /* ===============================
-     ✅ SEARCH FILTER (by student name)
+     SEARCH FILTER
   =============================== */
   function applySearch() {
     const q = String($('#searchName').val() || '').trim().toLowerCase();
@@ -159,14 +201,10 @@ $(function () {
     $('#totalCount').text(total);
     $('#shownCount').text(shown);
 
-    if ($('#searchName').val().trim() && total > 0) {
-      $('#searchHint').show();
-    } else {
-      $('#searchHint').hide();
-    }
+    if ($('#searchName').val().trim() && total > 0) $('#searchHint').show();
+    else $('#searchHint').hide();
   }
 
-  // debounce to avoid heavy rendering while typing
   let searchTimer = null;
   $('#searchName').on('input', function () {
     clearTimeout(searchTimer);
@@ -183,7 +221,7 @@ $(function () {
      RENDER PAGE
   =============================== */
   function renderPage() {
-    const data = filteredData; // ✅ use filtered data
+    const data = filteredData;
 
     const totalPages = Math.ceil(data.length / perPage) || 1;
     if (currentPage > totalPages) currentPage = totalPages;
@@ -204,25 +242,20 @@ $(function () {
     }
 
     const html = pageData.map(p => {
-
       const isAbsence = p.request_type === 'absence';
 
-      // absence: status 0/1
-      // permission: status 'pending'/'approved'
       const isApproved = isAbsence
         ? (parseInt(p.status, 10) === 1)
         : (String(p.status).toLowerCase() === 'approved');
 
       const isPending = !isApproved;
 
-      // ✅ per-student counts (from backend window function)
       const absStu = parseInt(p.absence_approved_by_student, 10) || 0;
       const perStu = parseInt(p.permission_approved_by_student, 10) || 0;
 
       return `
         <tr data-id="${escapeHtml(p.request_id)}" data-type="${escapeHtml(p.request_type)}">
 
-          <!-- Student + per-student count -->
           <td>
             <div class="d-flex flex-column">
               <strong>${escapeHtml(p.student_name)}</strong>
@@ -232,10 +265,8 @@ $(function () {
             </div>
           </td>
 
-          <!-- Course -->
           <td class="text-primary fw-semibold">${escapeHtml(p.course)}</td>
 
-          <!-- Period -->
           <td>
             ${
               isAbsence
@@ -247,17 +278,14 @@ $(function () {
             }
           </td>
 
-          <!-- Reason -->
           <td class="text-muted small">${escapeHtml(p.reason || '-')}</td>
 
-          <!-- Status -->
           <td class="text-center">
             <span class="status-pill ${isPending ? 'pending' : 'approved'}">
               ${isPending ? 'PENDING' : 'APPROVED'}
             </span>
           </td>
 
-          <!-- Action -->
           <td class="text-end">
             ${
               isPending
@@ -281,8 +309,7 @@ $(function () {
      PAGINATION
   =============================== */
   function renderPagination() {
-    const data = filteredData; // ✅ use filtered data
-    const totalPages = Math.ceil(data.length / perPage);
+    const totalPages = Math.ceil(filteredData.length / perPage);
 
     if (totalPages <= 1) {
       $('#pagination').empty();
@@ -312,16 +339,18 @@ $(function () {
     $('#pagination').html(html);
   }
 
-  $(document).on('click', '#pagination a', function (e) {
-    e.preventDefault();
-    const page = +$(this).data('page');
-    const totalPages = Math.ceil(filteredData.length / perPage);
+  $(document)
+    .off('click.paginate', '#pagination a')
+    .on('click.paginate', '#pagination a', function (e) {
+      e.preventDefault();
+      const page = +$(this).data('page');
+      const totalPages = Math.ceil(filteredData.length / perPage);
 
-    if (page >= 1 && page <= totalPages) {
-      currentPage = page;
-      renderPage();
-    }
-  });
+      if (page >= 1 && page <= totalPages) {
+        currentPage = page;
+        renderPage();
+      }
+    });
 
   /* ===============================
      EMPTY / ERROR
@@ -335,7 +364,6 @@ $(function () {
       </tr>
     `);
     $('#pagination').empty();
-
     if (resetCounts) setTopCounts(0, 0);
   }
 
@@ -350,80 +378,116 @@ $(function () {
   }
 
   /* ===============================
-     APPROVE (NO BLINK)
+     ✅ APPROVE: OPEN MODAL
+     (IMPORTANT: off/on to avoid multiple handlers)
   =============================== */
-  $(document).on('click', '.btnApprove', function () {
+  $(document)
+    .off('click.approve', '.btnApprove')
+    .on('click.approve', '.btnApprove', function () {
 
-    const btn  = $(this);
-    const id   = btn.data('id');
-    const type = btn.data('type');
-
-    const endpoint = (type === 'absence')
-      ? 'approve_absence_block'
-      : 'approve_permission';
-
-    const payload = { id: id }; // ✅ FIX
-
-    btn.prop('disabled', true)
-      .html('<span class="spinner-border spinner-border-sm"></span>');
-
-    $.post(`api.php?endpoint=${endpoint}`, payload, function (res) {
-      if (!res || !res.status) {
-        btn.prop('disabled', false).text('Approve');
-        console.log(res?.message || 'Approve failed');
+      if (!approveModal) {
+        alert("Modal not found (#approveModal).");
         return;
       }
 
+      const btn  = $(this);
+      const id   = btn.data('id');
+      const type = btn.data('type');
+
       const row = btn.closest('tr');
+      const studentName = row.find('strong').first().text().trim() || '-';
 
-      // ✅ UI status change
-      row.find('.status-pill')
-        .removeClass('pending')
-        .addClass('approved')
-        .text('APPROVED');
+      selectedApprove = { id, type, btn, row };
 
-      btn.replaceWith('<i class="bi bi-check-circle-fill text-success fs-5"></i>');
+      $('#modalStudentName').text(studentName);
+      $('#modalReqType').text(type === 'absence' ? 'absence block' : 'permission');
+      $('#adminComment').val('');
+      $('#modalError').addClass('d-none').text('');
 
-      // ✅ Update top counters instantly
-      const abs = parseInt($('#countAbsenceApproved').text(), 10) || 0;
-      const per = parseInt($('#countPermissionApproved').text(), 10) || 0;
+      $('#btnModalApprove').prop('disabled', false).text('Approve');
 
-      if (type === 'absence') {
-        $('#countAbsenceApproved').text(abs + 1);
-      } else {
-        $('#countPermissionApproved').text(per + 1);
-      }
-
-      const absNew = parseInt($('#countAbsenceApproved').text(), 10) || 0;
-      const perNew = parseInt($('#countPermissionApproved').text(), 10) || 0;
-      $('#countTotalApproved').text(absNew + perNew);
-
-      // ✅ Update per-student count shown in the row
-      // (this row only — other rows same student not updated unless you refresh)
-      const small = row.find('small');
-      const text = small.text(); // "Abs: 2 | Per: 3"
-      const match = text.match(/Abs:\s*(\d+)\s*\|\s*Per:\s*(\d+)/i);
-
-      if (match) {
-        let absStu = parseInt(match[1], 10) || 0;
-        let perStu = parseInt(match[2], 10) || 0;
-
-        if (type === 'absence') absStu += 1;
-        else perStu += 1;
-
-        small.html(`Abs: <b>${absStu}</b> | Per: <b>${perStu}</b>`);
-      }
-
-      // ✅ Keep search + pagination stable after approve:
-      // just update UI, but if you want to remove approved from list, uncomment:
-      // fetchRequests();
-
-    }, 'json')
-    .fail(() => {
-      btn.prop('disabled', false).text('Approve');
-      alert('Network error');
+      approveModal.show();
+      setTimeout(() => $('#adminComment').focus(), 200);
     });
-  });
+
+  /* ===============================
+     ✅ APPROVE: SUBMIT FROM MODAL
+     (IMPORTANT: off/on to avoid multiple handlers)
+  =============================== */
+  $('#btnModalApprove')
+    .off('click.approveSubmit')
+    .on('click.approveSubmit', function () {
+
+      const { id, type, btn, row } = selectedApprove;
+
+      const comment = String($('#adminComment').val() || '').trim();
+      if (!comment) {
+        $('#modalError').removeClass('d-none').text('Admin comment is required.');
+        return;
+      }
+
+      const endpoint = (type === 'absence')
+        ? 'approve_absence_block'
+        : 'approve_permission';
+
+      const modalBtn = $(this);
+      modalBtn.prop('disabled', true)
+              .html('<span class="spinner-border spinner-border-sm"></span> Approving...');
+
+      $.post(`api.php?endpoint=${endpoint}`, { id, admin_comment: comment }, function (res) {
+        modalBtn.prop('disabled', false).text('Approve');
+
+        if (!res || !res.status) {
+          $('#modalError').removeClass('d-none').text(res?.message || 'Approve failed');
+          return;
+        }
+
+        approveModal.hide();
+
+        // UI update
+        row.find('.status-pill').removeClass('pending').addClass('approved').text('APPROVED');
+        btn.replaceWith('<i class="bi bi-check-circle-fill text-success fs-5"></i>');
+
+        // update top counters
+        const abs = parseInt($('#countAbsenceApproved').text(), 10) || 0;
+        const per = parseInt($('#countPermissionApproved').text(), 10) || 0;
+
+        if (type === 'absence') $('#countAbsenceApproved').text(abs + 1);
+        else $('#countPermissionApproved').text(per + 1);
+
+        const absNew = parseInt($('#countAbsenceApproved').text(), 10) || 0;
+        const perNew = parseInt($('#countPermissionApproved').text(), 10) || 0;
+        $('#countTotalApproved').text(absNew + perNew);
+
+        // update per-student count in row
+        const small = row.find('small');
+        const text = small.text();
+        const match = text.match(/Abs:\s*(\d+)\s*\|\s*Per:\s*(\d+)/i);
+
+        if (match) {
+          let absStu = parseInt(match[1], 10) || 0;
+          let perStu = parseInt(match[2], 10) || 0;
+          if (type === 'absence') absStu += 1;
+          else perStu += 1;
+          small.html(`Abs: <b>${absStu}</b> | Per: <b>${perStu}</b>`);
+        }
+
+      }, 'json')
+      .fail(() => {
+        modalBtn.prop('disabled', false).text('Approve');
+        $('#modalError').removeClass('d-none').text('Network error');
+      });
+    });
+
+  // reset on modal close
+  if (approveModalEl) {
+    approveModalEl.addEventListener('hidden.bs.modal', () => {
+      selectedApprove = { id: null, type: null, btn: null, row: null };
+      $('#modalError').addClass('d-none').text('');
+      $('#adminComment').val('');
+      $('#btnModalApprove').prop('disabled', false).text('Approve');
+    });
+  }
 
   /* ===============================
      SMALL UTILS (XSS SAFE)
@@ -444,6 +508,7 @@ $(function () {
 
 });
 </script>
+
 
 <style>
 .permission-table th {

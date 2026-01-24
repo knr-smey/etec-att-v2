@@ -326,20 +326,27 @@ class StudentPermission
 
     public static function approveAbsenceBlock($conn)
     {
-        $id = $_POST['id'] ?? null;
+        $id      = $_POST['id'] ?? null;
+        $comment = trim($_POST['admin_comment'] ?? '');
 
+        // ✅ validation
         if (!$id) {
             self::response(false, "Block ID missing");
         }
 
+        if ($comment === '') {
+            self::response(false, "Admin comment is required");
+        }
+
         try {
-            // 1) Find tel + course_id for this block
+            // 1️⃣ Find tel + course_id for this block
             $stmt = $conn->prepare("
                 SELECT s.tel, c.course_id
                 FROM student_attendance_block b
                 JOIN students s ON b.stu_id = s.id
                 JOIN classes  c ON b.class_id = c.id
                 WHERE b.id = ?
+                AND b.block_type = 'absence'
                 LIMIT 1
             ");
             $stmt->bind_param("i", $id);
@@ -350,21 +357,24 @@ class StudentPermission
                 self::response(false, "Block not found");
             }
 
-            $tel = $info['tel'];
+            $tel       = $info['tel'];
             $course_id = (int)$info['course_id'];
 
-            // 2) Approve all blocks for same person (tel) in same course
+            // 2️⃣ Approve ALL absence blocks for same tel + course
             $upd = $conn->prepare("
                 UPDATE student_attendance_block b
                 JOIN students s ON b.stu_id = s.id
                 JOIN classes  c ON b.class_id = c.id
-                SET b.is_approved = 1
+                SET 
+                    b.is_approved   = 1,
+                    b.admin_comment = ?,
+                    b.approved_at   = NOW()
                 WHERE b.block_type = 'absence'
                 AND b.is_approved = 0
                 AND s.tel = ?
                 AND c.course_id = ?
             ");
-            $upd->bind_param("si", $tel, $course_id);
+            $upd->bind_param("ssi", $comment, $tel, $course_id);
 
             if (!$upd->execute()) {
                 self::response(false, "Failed to approve absence block");
@@ -376,5 +386,6 @@ class StudentPermission
             self::response(false, $e->getMessage());
         }
     }
+
 
 }
