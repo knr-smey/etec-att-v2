@@ -51,7 +51,6 @@
               <th style="width: 130px;">Phone</th>
               <th>Course</th>
               <th>Instructor</th>
-              <th style="width: 80px;">Class</th>
               <th style="width: 120px;">Created</th>
               <th style="width: 120px;">Permission</th>
               <th style="width: 120px;">Action</th>
@@ -264,7 +263,6 @@ $(document).ready(function () {
           <td>${stu.tel || '<span class="text-muted">—</span>'}</td>
           <td>${stu.course || '<span class="text-muted">—</span>'}</td>
           <td>${stu.instructor_name || '<span class="text-muted">—</span>'}</td>
-          <td class="text-center">${stu.class_id ? '#' + stu.class_id : '<span class="text-muted">—</span>'}</td>
           <td>${new Date(stu.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</td>
           <td>
             <button 
@@ -299,6 +297,14 @@ $(document).ready(function () {
                   data-name="${stu.full_name}"
                 >
                   <i class="bi bi-arrow-left-right"></i>
+                </button>
+                <button
+                  class="btn btn-sm btn-light btnDeleteStudent"
+                  data-stu="${stu.id}"
+                  data-class="${stu.class_id}"
+                  data-name="${stu.full_name}"
+                >
+                  <i class="bi bi-pencil"></i>
                 </button>
             </div>
            

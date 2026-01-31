@@ -1077,6 +1077,18 @@ switch ($endpoint) {
         DiscountController::getActiveRules($conn);
     break;
 
+    case "updateAttendanceRecord":
+        StudentController::updateAttendanceRecord(
+            $conn,
+            $_POST['record_id'] ?? null,
+            $_POST['present'] ?? 0,
+            $_POST['absent'] ?? 0,
+            $_POST['permission'] ?? 0,
+            $_POST['reason'] ?? ""
+        );
+    break;
+
+
 
     default:
         response(false, "Invalid endpoint");

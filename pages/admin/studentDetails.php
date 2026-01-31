@@ -246,16 +246,33 @@ $(document).ready(function() {
               totalPermission += parseInt(row.permission) || 0;
 
               tbody.append(`
-                <tr>
+                <tr data-record-id="${row.record_id}">
                   <td>${index + 1}</td>
                   <td>${row.created_at}</td>
                   <td><span class="bg-secondary-subtle px-2 rounded">${row.att_record_date}</span></td>
-                  <td><span class="badge bg-success">${row.present}</span></td>
-                  <td><span class="badge bg-danger">${row.absent}</span></td>
-                  <td><span class="badge bg-warning text-dark">${row.permission}</span></td>
-                  <td>${row.reason || '—'}</td>
+
+                  <td>
+                    <input type="checkbox" class="att-check att-present"
+                      ${parseInt(row.present) === 1 ? "checked" : ""}>
+                  </td>
+
+                  <td>
+                    <input type="checkbox" class="att-check att-absent"
+                      ${parseInt(row.absent) === 1 ? "checked" : ""}>
+                  </td>
+
+                  <td>
+                    <input type="checkbox" class="att-check att-permission"
+                      ${parseInt(row.permission) === 1 ? "checked" : ""}>
+                  </td>
+
+                  <td>
+                    <input type="text" class="form-control form-control-sm att-reason shadow-none border"
+                      value="${row.reason ?? ""}" placeholder="Reason...">
+                  </td>
                 </tr>
               `);
+
             });
 
             // Update summary cards

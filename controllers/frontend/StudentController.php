@@ -711,6 +711,91 @@ class StudentController {
         }
     }
 
+    public static function updateAttendanceRecord($conn, $record_id, $present, $absent, $permission, $reason) {
+        if (empty($record_id)) {
+            self::response(false, "Record ID is required");
+        }
+
+        // normalize values
+        $present    = (int)$present;
+        $absent     = (int)$absent;
+        $permission = (int)$permission;
+        $reason     = trim((string)$reason);
+
+        // only ONE status allowed
+        if (($present + $absent + $permission) > 1) {
+            self::response(false, "Only one attendance status is allowed");
+        }
+
+        $conn->begin_transaction();
+
+        try {
+            // 1️⃣ Get student + class from the attendance record
+            $stmt = $conn->prepare("
+                SELECT stu_id, class_id
+                FROM student_records
+                WHERE id = ?
+            ");
+            if (!$stmt) throw new Exception($conn->error);
+            $stmt->bind_param("i", $record_id);
+            $stmt->execute();
+            $info = $stmt->get_result()->fetch_assoc();
+
+            if (!$info) throw new Exception("Attendance record not found");
+
+            $stu_id   = (int)$info['stu_id'];
+            $class_id = (int)$info['class_id'];
+
+            // 2️⃣ Update attendance for THAT DATE
+            $up = $conn->prepare("
+                UPDATE student_records
+                SET present = ?, absent = ?, permission = ?, reason = ?
+                WHERE id = ?
+            ");
+            if (!$up) throw new Exception($conn->error);
+            $up->bind_param("iiisi", $present, $absent, $permission, $reason, $record_id);
+            if (!$up->execute()) throw new Exception("Attendance update failed");
+
+            // 3️⃣ Recalculate attendance score
+            // Present = +1, Absent = -1, Permission = -0.5
+            $scoreStmt = $conn->prepare("
+                SELECT
+                (COALESCE(SUM(present),0))
+                - (COALESCE(SUM(absent),0))
+                - (COALESCE(SUM(permission),0) * 0.5) AS att_score
+                FROM student_records
+                WHERE stu_id = ? AND class_id = ?
+            ");
+            if (!$scoreStmt) throw new Exception($conn->error);
+            $scoreStmt->bind_param("ii", $stu_id, $class_id);
+            $scoreStmt->execute();
+            $score = (float)$scoreStmt->get_result()->fetch_assoc()['att_score'];
+
+            // 4️⃣ Update students.att_score
+            $stuUp = $conn->prepare("
+                UPDATE students
+                SET att_score = ?
+                WHERE id = ?
+            ");
+            if (!$stuUp) throw new Exception($conn->error);
+            $stuUp->bind_param("di", $score, $stu_id);
+            if (!$stuUp->execute()) throw new Exception("Score update failed");
+
+            // 5️⃣ Commit
+            $conn->commit();
+
+            self::response(true, "Attendance and score updated successfully", [
+                "stu_id" => $stu_id,
+                "class_id" => $class_id,
+                "att_score" => $score
+            ]);
+
+        } catch (Exception $e) {
+            $conn->rollback();
+            self::response(false, $e->getMessage());
+        }
+    }
+
     // Insert student into transfer class with transfer class's instructor_id
     public static function transferStudentWithInstructor($conn, $fullname, $gender, $tel, $instructor_id, $class_id) {
         // Check if already exists in that class
@@ -1254,7 +1339,8 @@ class StudentController {
             $stmt->bind_param("sssi", $full_name, $gender, $tel, $stu_id);
             if (!$stmt->execute()) throw new Exception("Update failed: " . $stmt->error);
 
-            self::response(true, "Student updated successfully");
+            self::response(true, "Student
+             updated successfully");
         } catch (Exception $e) {
             self::response(false, $e->getMessage());
         }
@@ -1562,6 +1648,7 @@ class StudentController {
             // Original attendance query (unchanged)
             $stmt = $conn->prepare("
                 SELECT 
+                    r.id AS record_id,
                     s.id AS stu_id,
                     s.full_name,
                     s.gender,
@@ -1619,6 +1706,7 @@ class StudentController {
                 $student = $stuResult->fetch_assoc();
 
                 // Optional: add default attendance fields
+                $student['record_id'] = null; 
                 $student['att_record_date'] = null;
                 $student['present'] = 0;
                 $student['absent'] = 0;
