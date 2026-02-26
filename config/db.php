@@ -1,35 +1,43 @@
 <?php
-    // db.php
+    // db.php - Database Configuration
+    // Auto-detects between XAMPP (local development) and InfinityFree (production)
 
-    // $servername = "sql109.infinityfree.com";    // your host (on InfinityFree: use their DB hostname)
-    // $username   = "if0_40074033";         // your DB username
-    // $password   = "SwcqVSYdZyqVr";             // your DB password
-    // $database   = "if0_40074033_db_etec_sys";         // your database name
-    // $port = '3306';
+    // AUTO-DETECT ENVIRONMENT
+    $isInfinityFree = (strpos($_SERVER['HTTP_HOST'] ?? '', '42web.io') !== false) || 
+                      (strpos($_SERVER['SERVER_NAME'] ?? '', 'infinityfree.com') !== false);
 
-    // // Create connection
-    // $conn = new mysqli($servername, $username, $password, $database,$port);
-
-    // // Check connection
-    // if ($conn->connect_error) {
-    //     die("Connection failed: " . $conn->connect_error);
-    // }
-
-    // // Optional: set charset to utf8
-    // $conn->set_charset("utf8");
-
-    // Now $conn can be used in other PHP files
-
-    // db.php
-
-    // Database credentials
-    $host = "localhost";        // Usually localhost
-    $user = "root";             // Your MySQL username
-    $password = "";             // Your MySQL password
-    $dbname = "db_etec_sys";    // Your database name
+    if ($isInfinityFree) {
+        // ===== INFINITYFREE PRODUCTION CONFIGURATION =====
+        $servername = "sql109.infinityfree.com";
+        $username   = "if0_40074033";
+        $password   = "SwcqVSYdZyqVr";
+        $database   = "if0_40074033_db_etec_sys";
+        $port       = 3306;
+        
+        // Also define constants for controllers that use them
+        define('DB_HOST', 'sql109.infinityfree.com');
+        define('DB_USER', 'if0_40074033');
+        define('DB_PASS', 'SwcqVSYdZyqVr');
+        define('DB_NAME', 'if0_40074033_db_etec_sys');
+        define('DB_PORT', 3306);
+    } else {
+        // ===== LOCAL XAMPP DEVELOPMENT CONFIGURATION =====
+        $servername = "localhost";
+        $username   = "root";
+        $password   = "";
+        $database   = "db_etec_sys";
+        $port       = 4306;
+        
+        // Also define constants for controllers that use them
+        define('DB_HOST', 'localhost');
+        define('DB_USER', 'root');
+        define('DB_PASS', '');
+        define('DB_NAME', 'db_etec_sys');
+        define('DB_PORT', 4306);
+    }
 
     // Create connection
-    $conn = new mysqli($host, $user, $password, $dbname);
+    $conn = new mysqli($servername, $username, $password, $database, $port);
 
     // Check connection
     if ($conn->connect_error) {

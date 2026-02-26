@@ -1,6 +1,18 @@
 <?php
 date_default_timezone_set('Asia/Phnom_Penh');
 // echo date('Y-m-d H:i:s');
+
+// CORS Headers for cross-origin requests (works on InfinityFree)
+header("Access-Control-Allow-Origin: *");
+header("Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS");
+header("Access-Control-Allow-Headers: Content-Type, Authorization");
+
+// Handle preflight requests
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    http_response_code(200);
+    exit;
+}
+
 require_once(__DIR__ . '/config/db.php');
 require_once(__DIR__ . '/controllers/AuthController.php');
 
@@ -15,6 +27,7 @@ require_once(__DIR__ . '/controllers/backend/InstructorController.php');
 require_once(__DIR__ . '/controllers/backend/ClassAndStuController.php');
 require_once(__DIR__ . '/controllers/backend/AttendanceRule.php');
 require_once(__DIR__ . '/controllers/backend/DiscountController.php');
+require_once(__DIR__ . '/controllers/backend/BackupController.php');
 
 
 require_once(__DIR__ . '/controllers/frontend/ClassController.php');
@@ -1088,7 +1101,115 @@ switch ($endpoint) {
         );
     break;
 
+    case "backupDatabase":
+        if ($method !== 'POST') response(false, "Method not allowed");
+        
+        // Get JSON data
+        $input = json_decode(file_get_contents('php://input'), true);
+        $action = $input['action'] ?? 'download';
+        
+        switch ($action) {
+            case 'download':
+                $result = BackupController::backupDownload($conn);
+                break;
+            case 'telegram':
+                $result = BackupController::backupTelegram($conn);
+                break;
+            case 'both':
+                $result = BackupController::backupBoth($conn);
+                break;
+            default:
+                response(false, "Invalid action");
+        }
+        
+        response($result['status'], $result['message'], $result['data']);
+    break;
 
+    case "downloadBackupFile":
+        if ($method !== 'GET') response(false, "Method not allowed");
+        
+        $filename = $_GET['filename'] ?? '';
+        
+        if (empty($filename)) {
+            response(false, "Filename is required");
+        }
+        
+        // Prevent path traversal attack
+        if (strpos($filename, '..') !== false || strpos($filename, '/') !== false) {
+            response(false, "Invalid filename");
+        }
+        
+        BackupController::downloadBackup($filename);
+    break;
+
+    case "deleteBackupFile":
+        if ($method !== 'POST') response(false, "Method not allowed");
+        
+        $input = json_decode(file_get_contents('php://input'), true);
+        $filename = $input['filename'] ?? '';
+        
+        if (empty($filename)) {
+            response(false, "Filename is required");
+        }
+        
+        // Prevent path traversal attack - BackupController also checks this
+        if (strpos($filename, '..') !== false || strpos($filename, '/') !== false) {
+            response(false, "Invalid filename");
+        }
+        
+        $result = BackupController::deleteBackup($filename);
+        response($result['status'], $result['message'], $result['data']);
+    break;
+
+    case "getBackupHistory":
+        if ($method !== 'GET') response(false, "Method not allowed");
+        
+        $result = BackupController::getBackupHistory($conn);
+        response($result['status'], $result['message'], $result['data']);
+    break;
+
+    case "checkBackupRequirements":
+        if ($method !== 'GET') response(false, "Method not allowed");
+        
+        // Check if mysqldump exists
+        $mysqldumpPaths = array(
+            'C:\\xampp\\mysql\\bin\\mysqldump.exe',
+            'C:\\Program Files\\MySQL\\MySQL Server 8.0\\bin\\mysqldump.exe',
+            'C:\\Program Files (x86)\\MySQL\\MySQL Server 8.0\\bin\\mysqldump.exe',
+            'mysqldump'
+        );
+        
+        $mysqldumpFound = false;
+        $foundPath = null;
+        foreach ($mysqldumpPaths as $path) {
+            if (file_exists($path)) {
+                $mysqldumpFound = true;
+                $foundPath = $path;
+                break;
+            }
+        }
+        
+        // Check if uploads folder exists and is writable
+        $uploadsPath = __DIR__ . '/assets/uploads';
+        $uploadsExist = is_dir($uploadsPath);
+        $uploadsWritable = is_writable($uploadsPath) || is_writable(__DIR__ . '/assets');
+        
+        response(true, "Backup requirements check", [
+            'mysqldump_found' => $mysqldumpFound,
+            'mysqldump_path' => $foundPath,
+            'uploads_folder_exists' => $uploadsExist,
+            'uploads_writable' => $uploadsWritable,
+            'php_version' => phpversion(),
+            'os' => PHP_OS
+        ]);
+    break;
+
+    case "cleanupBackups":
+        if ($method !== 'GET') response(false, "Method not allowed");
+        
+        $result = BackupController::manualCleanup();
+        response($result['status'], $result['message'], $result['data']);
+    break;
 
     default:
         response(false, "Invalid endpoint");

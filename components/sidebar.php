@@ -193,6 +193,12 @@
                                 Category
                             </li>
                         </a>
+                        <a href="pages/admin/backup.php" class="btn text-white w-100 text-start my-1 border-0 fs-6 nav-link-ajax">
+                            <li class="m-0">
+                                <i class="bi bi-cloud-arrow-down me-2"></i>
+                                Backup Database
+                            </li>
+                        </a>
                     </div>
                 </div>
                 <!-- admin -->

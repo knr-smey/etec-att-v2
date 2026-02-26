@@ -5,6 +5,9 @@ $end_date = isset($_GET['end_date']) ? $_GET['end_date'] : '';
 
 // Optional: format the end date nicely
 $formatted_date = $end_date ? date('d-m-Y', strtotime($end_date)) : '';
+$discount_from = $end_date ? date('d-m-Y', strtotime($end_date)) : '';
+$discount_to   = $end_date ? date('d-m-Y', strtotime($end_date . ' +14 days')) : '';
+
 ?>
 
 <!DOCTYPE html>
@@ -28,16 +31,25 @@ $formatted_date = $end_date ? date('d-m-Y', strtotime($end_date)) : '';
         .kh-font{
             font-family: "Metal", serif !important;
         }
+        .fail-row td {
+          color: red;
+
+          /* draw a horizontal red line inside each cell */
+          background-image: linear-gradient(red, red);
+          background-size: 100% 1px;       /* line thickness */
+          background-position: 0 50%;      /* center vertically */
+          background-repeat: no-repeat;
+        }
     </style>
 </head>
 <body>
 
-<div class="container-fluid" style="padding: 50px 150px;">
+<div class="container-fluid" style="padding: 50px 200px;">
     <div class="mb-3 text-end">
         <button id="downloadBtn" class="btn btn-primary">Download PDF</button>
     </div>
 
-    <div id="content" class="bg-white py-3 px-5 rounded">
+    <div id="content" class="bg-white py-3 px-3 rounded">
         <!-- Header -->
         <div class="d-flex mb-2">
             <div class="col-2 text-center font-custom">
@@ -61,24 +73,30 @@ $formatted_date = $end_date ? date('d-m-Y', strtotime($end_date)) : '';
                 <thead class="table-secondary">
                     <tr class="font-custom">
                         <th rowspan="2" class="fw-medium col-1">No</th>
-                        <th rowspan="2" class="fw-medium col-3 text-start ps-3">Full Name</th>
+                        <th rowspan="2" class="fw-medium col-2 text-start ps-3">Full Name</th>
                         <th rowspan="2" class="fw-medium col-1">Gender</th>
                         <th colspan="4" class="fw-medium col-3">Score</th>
                         
-                        <th rowspan="2" class="fw-medium col-1">Result</th>
+                        <th rowspan="2" class="fw-medium" style="width: 5%;">Result</th>
                         <th rowspan="2" class="fw-medium col-1">Other</th>
                     </tr>
                     <tr class="font-custom">
-                        <th class="fw-medium col-1">Attendance</th>
-                        <th class="fw-medium col-1">Activity</th>
-                        <th class="fw-medium col-1">Exam</th>
-                        <th class="fw-medium col-1">Total</th>
+                        <th class="fw-medium" style="width: 5%;">ATT</th>
+                        <th class="fw-medium" style="width: 5%;">ACT</th>
+                        <th class="fw-medium" style="width: 5%;">EXAM</th>
+                        <th class="fw-medium" style="width: 5%;">Total</th>
                     </tr>
                 </thead>
                 <tbody id="student-rows">
                     <!-- Students will be inserted dynamically -->
                 </tbody>
             </table>
+        </div>
+        <!-- Note -->
+        <div class="mt-2 mb-3">
+          <p class="mb-0 text-danger fw-bold" style="font-size: 13px;">
+            ចំណាំ៖ ការបញ្ចុះតម្លៃមានសុពលភាពចាប់ពីថ្ងៃទី <?= $discount_from ?> ដល់ថ្ងៃទី <?= $discount_to ?> (រយៈពេល ២ សប្តាហ៍)។
+          </p>
         </div>
 
         <!-- Footer -->
@@ -183,6 +201,29 @@ $(document).ready(function() {
           return;
         }
 
+        // PASS first, then highest total on top, FAIL at bottom
+        students.sort((a, b) => {
+          const totalA =
+            parseFloat(a.att_score || 0) +
+            parseFloat(a.act_score || 0) +
+            parseFloat(a.exam_score || 0);
+
+          const totalB =
+            parseFloat(b.att_score || 0) +
+            parseFloat(b.act_score || 0) +
+            parseFloat(b.exam_score || 0);
+
+          const failA = totalA < 50 ? 1 : 0; // 0=pass, 1=fail
+          const failB = totalB < 50 ? 1 : 0;
+
+          // 1) PASS first, FAIL last
+          if (failA !== failB) return failA - failB;
+
+          // 2) Same group (both pass or both fail) -> highest total first
+          return totalB - totalA;
+        });
+
+
         students.forEach((stu, index) => {
           const att  = parseFloat(stu.att_score || 0);
           const act  = parseFloat(stu.act_score || 0);
@@ -193,13 +234,13 @@ $(document).ready(function() {
 
           const rule = getRuleByScore(total);
           let otherText = '';
-            if (rule) {
+          if (rule) {
             const percent = Number(rule.discount_percent);
-            otherText = `${rule.title} <br> (${Number.isInteger(percent) ? percent : percent}% dis)`;
+            otherText = `(${percent}% discount) 🎉`;
           }
 
           tbody.append(`
-            <tr class="small font-custom">
+            <tr class="small font-custom ${pass ? '' : 'fail-row'}">
               <td>${index + 1}</td>
               <td class="fw-bold text-start ps-3">${stu.full_name}</td>
               <td>${stu.gender}</td>
@@ -216,6 +257,8 @@ $(document).ready(function() {
             </tr>
           `);
         });
+
+
 
       },
       error: function(err) {
@@ -246,6 +289,7 @@ $(document).ready(function() {
 
 });
 </script>
+
 
 </body>
 </html>
