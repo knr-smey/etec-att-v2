@@ -300,9 +300,10 @@ class ClassController {
     }
 
     // UPDATE CLASS STATUS
-    public static function updateClassStatus($conn, $class_id, $class_status) {
+    public static function updateClassStatus($conn, $class_id, $class_status, $user_id)
+    {
         try {
-            // Validate inputs
+
             if (!$class_id) {
                 self::response(false, "Class ID is required");
             }
@@ -311,27 +312,69 @@ class ClassController {
                 self::response(false, "Class status is required");
             }
 
-            // Prepare SQL statement
-            $stmt = $conn->prepare("UPDATE classes SET class_status = ? WHERE id = ?");
-            if (!$stmt) {
-                self::response(false, "Prepare failed: " . $conn->error);
+            if (!$user_id) {
+                self::response(false, "User ID is required");
             }
 
+            // Start transaction
+            $conn->begin_transaction();
+
+            // 1️⃣ Update class status
+            $stmt = $conn->prepare("UPDATE classes SET class_status = ? WHERE id = ?");
             $stmt->bind_param("si", $class_status, $class_id);
 
-            // Execute and check result
-            if ($stmt->execute()) {
-                if ($stmt->affected_rows > 0) {
-                    self::response(true, "Class status updated successfully");
-                } else {
-                    self::response(false, "No changes made or class not found");
-                }
-            } else {
-                self::response(false, "Update failed: " . $conn->error);
+            if (!$stmt->execute()) {
+                throw new Exception("Failed to update class");
             }
 
+            // 2️⃣ If status == end → insert to end_class
+            if ($class_status === 'end') {
+
+                // Insert into end_class
+                $insertEnd = $conn->prepare("
+                    INSERT INTO end_class (class_id, user_id, end_date, created_at, updated_at)
+                    VALUES (?, ?, NOW(), NOW(), NOW())
+                ");
+                $insertEnd->bind_param("ii", $class_id, $user_id);
+
+                if (!$insertEnd->execute()) {
+                    throw new Exception("Failed to insert end_class");
+                }
+
+                $end_class_id = $insertEnd->insert_id;
+
+                // 3️⃣ Get all students of this class
+                $students = $conn->prepare("
+                    SELECT id 
+                    FROM students 
+                    WHERE class_id = ?
+                ");
+                $students->bind_param("i", $class_id);
+                $students->execute();
+                $result = $students->get_result();
+
+                // 4️⃣ Insert into end_class_students
+                $insertStudent = $conn->prepare("
+                    INSERT INTO end_class_students (end_class_id, student_id, discounts, created_at)
+                    VALUES (?, ?, 0, NOW())
+                ");
+
+                while ($row = $result->fetch_assoc()) {
+                    $student_id = $row['id']; // ✅ FIXED
+                    $insertStudent->bind_param("ii", $end_class_id, $student_id);
+                    $insertStudent->execute();
+                }
+            }
+
+            // Commit
+            $conn->commit();
+
+            self::response(true, "Class status updated successfully");
+
         } catch (Exception $e) {
-            self::response(false, "Error updating class status: " . $e->getMessage());
+
+            $conn->rollback();
+            self::response(false, $e->getMessage());
         }
     }
 

@@ -777,10 +777,18 @@ switch ($endpoint) {
     break;
     
     case 'update_class_status':
+
+        $user_id = $_SESSION['user']['id'] ?? null;
         $class_id = $_POST['class_id'] ?? null;
         $class_status = $_POST['class_status'] ?? null;
 
-        ClassController::updateClassStatus($conn, $class_id, $class_status);
+        ClassController::updateClassStatus(
+            $conn,
+            $class_id,
+            $class_status,
+            $user_id
+        );
+
     break;
 
     case 'switch_instrutor':
