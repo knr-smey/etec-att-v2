@@ -195,12 +195,8 @@ class StudentController {
         $course_id = self::getCourseIdByClass($conn, $class_id);
         if (!$course_id) return;
 
-        // 3) decide period from absence rule
-        $period = $rule['period_type'] === 'month' ? 'month' : 'week';
-        if ($rule['period_type'] === 'both') $period = 'both';
-
-        // 4) count absence by tel+course
-        $count = self::countAbsenceInPeriodByTel($conn, $tel, $course_id, $period, $date, $term);
+        // 3) count absence by tel+course for current month
+        $count = self::countAbsenceInCurrentMonth($conn, $tel, $course_id, $date, $ruleStart);
 
         $limit = (int)$rule['limit_count'];
         if ($count < $limit) return;
@@ -367,6 +363,33 @@ class StudentController {
         return $row ? $row['term'] : '';
     }
 
+    private static function countAbsenceInCurrentMonth($conn, $tel, $course_id, $date, $ruleStart) {
+        // Count absences in the current calendar month
+        // Respects rule activation date
+        
+        $monthStart = date('Y-m-01', strtotime($date));
+        $monthEnd   = date('Y-m-t', strtotime($date));
+
+        // If rule starts after month start, use rule start date
+        $start = ($ruleStart > $monthStart) ? $ruleStart : $monthStart;
+        $end   = $monthEnd;
+
+        $stmt = $conn->prepare("
+            SELECT COUNT(*) AS total
+            FROM student_records sr
+            JOIN students s ON sr.stu_id = s.id
+            JOIN classes c ON sr.class_id = c.id
+            WHERE s.tel = ?
+              AND c.course_id = ?
+              AND sr.absent = 1
+              AND DATE(sr.att_record_date) BETWEEN ? AND ?
+        ");
+        $stmt->bind_param("siss", $tel, $course_id, $start, $end);
+        $stmt->execute();
+
+        return (int)$stmt->get_result()->fetch_assoc()['total'];
+    }
+
     private static function countAbsenceInPeriodByTel($conn, $tel, $course_id, $period, $date, $term) {
 
         $rule = AttendanceRule::getRuleForClass($conn, 'absence', $term);
@@ -499,9 +522,6 @@ class StudentController {
 
         $result = [];
 
-        // detect week / month (weekday vs weekend class)
-        $periodType = self::getPeriodTypeByClass($conn, $class_id);
-
         // fetch all students in class
         $stmt = $conn->prepare("
             SELECT s.id AS stu_id, s.tel
@@ -517,7 +537,7 @@ class StudentController {
             $stu_id = (int)$stu['stu_id'];   // UI row key
             $tel    = $stu['tel'];           // real person key
 
-            // BSENCE RULE CHECK (by TEL + COURSE) to support Basic IT duplicated students
+            // ABSENCE RULE CHECK (by TEL + COURSE) - Count per calendar month
             $course_id = self::getCourseIdByClass($conn, $class_id);
             $term      = self::getClassTermName($conn, $class_id);
 
@@ -525,17 +545,13 @@ class StudentController {
 
             if ($absenceRule && $absenceRule['is_active']) {
 
-                // Decide period from absence rule (NOT permission rule)
-                $period = $absenceRule['period_type'] === 'month' ? 'month' : 'week';
-                if ($absenceRule['period_type'] === 'both') $period = 'both';
-
-                $absCount = self::countAbsenceInPeriodByTel(
+                // Count absences for current calendar month only
+                $absCount = self::countAbsenceInCurrentMonth(
                     $conn,
                     $tel,
                     $course_id,
-                    $period,
                     $date,
-                    $term
+                    $absenceRule['start_date']
                 );
 
                 $limit = (int)$absenceRule['limit_count'];
@@ -600,9 +616,7 @@ class StudentController {
                 $result[$stu_id] = [
                     'status' => 'permission_locked',
                     'locked' => true,
-                    'reason' => $periodType === 'week'
-                        ? 'Permission already used this week'
-                        : 'Permission already used this month'
+                    'reason' => 'Permission already used this month'
                 ];
                 continue;
             }
