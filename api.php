@@ -1231,6 +1231,10 @@ switch ($endpoint) {
         response($result['status'], $result['message'], $result['data']);
     break;
 
+    case "get_student_for_certificate":
+        if ($method !== 'GET') response(false, "Method not allowed");
+        // StudentPermission::getStudentRequests($conn);
+
     default:
         response(false, "Invalid endpoint");
 }

@@ -82,6 +82,9 @@ $class_id = isset($_GET['class_id']) ? intval($_GET['class_id']) : 0;
              <button class="btn btn-info text-light" id="btnGroup" data-bs-toggle="modal" data-bs-target="#groupmodal">
                 <i class="bi bi-people-fill me-1"></i> Group 
             </button>
+            <button class="btn btn-warning text-light" id="btnRequestCertificate" data-class-id="<?php echo $class_id; ?>" data-bs-toggle="modal" data-bs-target="#requestCertificateModal">
+                <i class="bi bi-file-earmark-text me-1"></i> Request Certficate
+            </button>
             <button class="btn btn-success" id="saveAllScoresBtn">
                 <i class="bi bi-save2 me-1"></i> Save Score
             </button>
@@ -305,6 +308,39 @@ $class_id = isset($_GET['class_id']) ? intval($_GET['class_id']) : 0;
         </div>
     </div>
 
+    <!-- Request Certificate Modal -->
+    <div class="modal fade" id="requestCertificateModal" tabindex="-1" aria-labelledby="requestCertificateModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header bg-etec-color text-white">
+                    <h5 class="modal-title" id="requestCertificateModalLabel">Request Certficate</h5>
+                    <button type="button" style="filter: invert(1) grayscale(100%) brightness(200%);" class="btn-close shadow-none" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <form action="">
+                        <div class="table-responsive">
+                            <table class="table table-bordered align-middle mb-0">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>N<sup>o</sup></th>
+                                        <th>Student Name</th>
+                                        <th>Gender</th>
+                                        <th>Action [EDIT | APPROVE]</th> 
+                                    </tr>
+                                </thead>
+                                <tbody id="certificate-pass-tbody">
+                                    <tr>
+                                        <td colspan="4" class="text-center text-muted">No data yet</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Notification Modal -->
     <div class="modal fade" id="notificationModal" tabindex="-1" aria-labelledby="notificationModalLabel" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
@@ -512,6 +548,34 @@ $class_id = isset($_GET['class_id']) ? intval($_GET['class_id']) : 0;
         $('#btnRefresh').on('click',function(){
             loadStudents(class_id)
         })
+
+        $('#btnRequestCertificate').on('click', function() {
+            const $tbody = $('#certificate-pass-tbody');
+            const classId = $(this).data('class-id');
+            
+            console.log('Button clicked!');
+            console.log('Class ID:', classId);
+            
+            // Show loading in table
+            $tbody.html(`
+                <tr>
+                    <td colspan="4" class="text-center text-muted">Loading...</td>
+                </tr>
+            `);
+
+            // Test AJAX call
+            $.ajax({
+                url: `api.php?endpoint=get_student_for_certificate&class_id=${classId}`,
+                type: 'GET',
+                dataType: 'json',
+                success: function(res) {
+                    console.log('AJAX Response:', res);
+                },
+                error: function(err) {
+                    console.error('AJAX Error:', err);
+                }
+            });
+        });
 
         function toggleSpinner(button, show) {
             const $btn = $(button);
