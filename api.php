@@ -33,6 +33,7 @@ require_once(__DIR__ . '/controllers/backend/BackupController.php');
 require_once(__DIR__ . '/controllers/frontend/ClassController.php');
 require_once(__DIR__ . '/controllers/frontend/StudentController.php');
 require_once(__DIR__ . '/controllers/frontend/StudentPermission.php');
+require_once(__DIR__ . '/controllers/frontend/BlacklistController.php');
 
 
 header('Content-Type: application/json');
@@ -1071,6 +1072,17 @@ switch ($endpoint) {
         if ($method !== 'GET') response(false, "Method not allowed");
         StudentPermission::fetchAbsenceAndPermissionForAdmin($conn);
     break;
+
+    case 'fetch_blacklist_students':
+        if ($method !== 'GET') response(false, "Method not allowed");
+        BlacklistController::getHardLockStudents($conn);
+    break;
+
+    case 'unblock_blacklist_student':
+        if ($method !== 'POST') response(false, "Method not allowed");
+        BlacklistController::unblockHardLockStudent($conn);
+    break;
+
     case 'get_discounts':
         DiscountController::getAll($conn);
         break;

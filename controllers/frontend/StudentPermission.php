@@ -253,18 +253,28 @@ class StudentPermission
                         s.id              AS stu_id,
                         sab.id            AS request_id,
                         'absence'         AS request_type,
+                        sab.block_type    AS block_mode,
                         s.full_name       AS student_name,
                         co.course         AS course,
                         c.id              AS class_id,
                         NULL              AS start_date,
                         NULL              AS end_date,
-                        'Exceeded absence limit' AS reason,
-                        sab.is_approved   AS status,
+                        CASE
+                            WHEN sab.block_type = 'hard_lock'
+                                THEN 'Hard lock: exceeded 2 absences after admin approval'
+                            ELSE 'Exceeded absence limit'
+                        END               AS reason,
+                        CASE
+                            WHEN sab.block_type = 'hard_lock' THEN 2
+                            ELSE sab.is_approved
+                        END               AS status,
                         sab.blocked_at    AS created_at
                     FROM student_attendance_block sab
                     JOIN students s ON s.id = sab.stu_id
                     JOIN classes c ON c.id = sab.class_id
                     JOIN courses co ON co.id = c.course_id
+                          WHERE sab.block_type = 'absence'
+                              OR (sab.block_type = 'hard_lock' AND sab.is_approved = 0)
                 )
 
                 UNION ALL
@@ -274,6 +284,7 @@ class StudentPermission
                         s.id              AS stu_id,
                         sp.id             AS request_id,
                         'permission'      AS request_type,
+                        NULL              AS block_mode,
                         s.full_name       AS student_name,
                         co.course         AS course,
                         c.id              AS class_id,
@@ -339,6 +350,19 @@ class StudentPermission
         }
 
         try {
+                $hardCheck = $conn->prepare("
+                    SELECT 1
+                    FROM student_attendance_block
+                    WHERE id = ?
+                    AND block_type = 'hard_lock'
+                    LIMIT 1
+                ");
+                $hardCheck->bind_param("i", $id);
+                $hardCheck->execute();
+                if ($hardCheck->get_result()->num_rows > 0) {
+                    self::response(false, "Hard lock cannot be approved anymore");
+                }
+
             // 1️⃣ Find tel + course_id for this block
             $stmt = $conn->prepare("
                 SELECT s.tel, c.course_id

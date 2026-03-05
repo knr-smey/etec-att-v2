@@ -145,19 +145,20 @@ class StudentController {
             $stu_id   = (int)$r['stu_id'];
             $class_id = (int)$r['class_id'];
 
-            // ✅ IMPORTANT: check ANY block exists (approved or not)
+            // check only pending absence block
             $check = $conn->prepare("
                 SELECT 1
                 FROM student_attendance_block
                 WHERE stu_id = ?
                 AND class_id = ?
                 AND block_type = 'absence'
+                AND is_approved = 0
                 LIMIT 1
             ");
             $check->bind_param("ii", $stu_id, $class_id);
             $check->execute();
 
-            // if already exists -> do nothing (don't insert again)
+            // if pending already exists -> do nothing
             if ($check->get_result()->num_rows > 0) continue;
 
             $ins = $conn->prepare("
@@ -165,6 +166,30 @@ class StudentController {
                 (stu_id, class_id, block_type, is_approved, blocked_at)
                 VALUES (?, ?, 'absence', 0, NOW())
             ");
+            $ins->bind_param("ii", $stu_id, $class_id);
+            $ins->execute();
+        }
+    }
+
+    private static function ensureHardLockByTelCourse($conn, $tel, $course_id) {
+
+        $stmt = $conn->prepare("\n            SELECT s.id AS stu_id, s.class_id\n            FROM students s\n            JOIN classes c ON s.class_id = c.id\n            WHERE s.tel = ?\n            AND c.course_id = ?\n        ");
+        $stmt->bind_param("si", $tel, $course_id);
+        $stmt->execute();
+        $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+
+        foreach ($rows as $r) {
+            $stu_id   = (int)$r['stu_id'];
+            $class_id = (int)$r['class_id'];
+
+            // only one pending hard lock per student+class
+            $check = $conn->prepare("\n                SELECT 1\n                FROM student_attendance_block\n                WHERE stu_id = ?\n                AND class_id = ?\n                AND block_type = 'hard_lock'\n                AND is_approved = 0\n                LIMIT 1\n            ");
+            $check->bind_param("ii", $stu_id, $class_id);
+            $check->execute();
+
+            if ($check->get_result()->num_rows > 0) continue;
+
+            $ins = $conn->prepare("\n                INSERT INTO student_attendance_block\n                (stu_id, class_id, block_type, is_approved, admin_comment, blocked_at)\n                VALUES (?, ?, 'hard_lock', 0, 'Hard lock: exceeded 2 absences after admin approval', NOW())\n            ");
             $ins->bind_param("ii", $stu_id, $class_id);
             $ins->execute();
         }
@@ -195,7 +220,21 @@ class StudentController {
         $course_id = self::getCourseIdByClass($conn, $class_id);
         if (!$course_id) return;
 
-        // 3) count absence by tel+course for current month
+        // 3) if already approved in this cycle, enforce 2-absence phase
+        $inSecondPhase = self::hasApprovedAbsenceBlockInCurrentCycle(
+            $conn,
+            $tel,
+            $course_id,
+            $date,
+            $ruleStart
+        );
+
+        if ($inSecondPhase) {
+            self::enforceHardLockAfterApproval($conn, $tel, $course_id, $date, $ruleStart);
+            return;
+        }
+
+        // otherwise, normal phase: count up to monthly rule limit
         $count = self::countAbsenceInCurrentMonth($conn, $tel, $course_id, $date, $ruleStart);
 
         $limit = (int)$rule['limit_count'];
@@ -367,11 +406,20 @@ class StudentController {
         // Count absences in the current calendar month
         // Respects rule activation date
         
-        $monthStart = date('Y-m-01', strtotime($date));
-        $monthEnd   = date('Y-m-t', strtotime($date));
+        $monthStart = date('Y-m-01 00:00:00', strtotime($date));
+        $monthEnd   = date('Y-m-t 23:59:59', strtotime($date));
+        $latestUnlockAt = self::getLatestHardLockUnlockDateByTelCourse($conn, $tel, $course_id);
 
         // If rule starts after month start, use rule start date
-        $start = ($ruleStart > $monthStart) ? $ruleStart : $monthStart;
+        $ruleStartDt = date('Y-m-d 00:00:00', strtotime($ruleStart));
+        $start = ($ruleStartDt > $monthStart) ? $ruleStartDt : $monthStart;
+
+        if (!empty($latestUnlockAt)) {
+            if ($latestUnlockAt > $start) {
+                $start = $latestUnlockAt;
+            }
+        }
+
         $end   = $monthEnd;
 
         $stmt = $conn->prepare("
@@ -382,7 +430,7 @@ class StudentController {
             WHERE s.tel = ?
               AND c.course_id = ?
               AND sr.absent = 1
-              AND DATE(sr.att_record_date) BETWEEN ? AND ?
+              AND sr.att_record_date BETWEEN ? AND ?
         ");
         $stmt->bind_param("siss", $tel, $course_id, $start, $end);
         $stmt->execute();
@@ -465,10 +513,11 @@ class StudentController {
             //     self::response(false, "Class time not found");
             // }
 
-            // [$ok, $msg] = self::canTrackAttendanceByTime($timeRange, 15);
+            // [$ok, $msg] = self::canTrackAttendanceByTime($timeRange, 20);
             // if (!$ok) {
             //     self::response(false, $msg);
             // }
+
 
             if (self::isAttendanceRecordedToday($conn, $class_id, $date)) {
                 self::response(false, "⚠️ Attendance for today has already been recorded.");
@@ -540,8 +589,59 @@ class StudentController {
             // ABSENCE RULE CHECK (by TEL + COURSE) - Count per calendar month
             $course_id = self::getCourseIdByClass($conn, $class_id);
             $term      = self::getClassTermName($conn, $class_id);
-
             $absenceRule = AttendanceRule::getRuleForClass($conn, 'absence', $term);
+
+            if (self::hasHardLockByTelCourse($conn, $tel, $course_id)) {
+                $result[$stu_id] = [
+                    'status' => 'absent',
+                    'locked' => true,
+                    'reason' => 'Hard lock: exceeded 2 absences after admin approval. Please contact admin.'
+                ];
+                continue;
+            }
+
+            // Keep locked until admin approves existing absence block,
+            // even when month changes.
+            if (self::hasPendingAbsenceBlockByTelCourse($conn, $tel, $course_id)) {
+                $result[$stu_id] = [
+                    'status' => 'absent',
+                    'locked' => true,
+                    'reason' => 'Absence block is pending admin approval. Please meet admin to unlock attendance.'
+                ];
+                continue;
+            }
+
+            $inSecondPhase = ($absenceRule && $absenceRule['is_active'])
+                ? self::hasApprovedAbsenceBlockInCurrentCycle(
+                    $conn,
+                    $tel,
+                    $course_id,
+                    $date,
+                    $absenceRule['start_date']
+                )
+                : false;
+
+            // after admin approves absence block in current cycle,
+            // allow only 2 additional absences before hard-lock.
+            if ($inSecondPhase) {
+                $postApprovalAbsences = self::countAbsenceAfterLatestApprovalInCurrentMonth(
+                    $conn,
+                    $tel,
+                    $course_id,
+                    $date,
+                    $absenceRule['start_date']
+                );
+
+                if ($postApprovalAbsences >= 2) {
+                    self::ensureHardLockByTelCourse($conn, $tel, $course_id);
+                    $result[$stu_id] = [
+                        'status' => 'absent',
+                        'locked' => true,
+                        'reason' => 'Hard lock: exceeded 2 absences after admin approval. Please contact admin.'
+                    ];
+                    continue;
+                }
+            }
 
             if ($absenceRule && $absenceRule['is_active']) {
 
@@ -558,15 +658,8 @@ class StudentController {
 
                 if ($absCount >= $limit) {
 
-                    // ✅ If admin already approved absence block -> allow tracking
-                    if (self::hasApprovedAbsenceBlockByTelCourse($conn, $tel, $course_id)) {
-                        $result[$stu_id] = [
-                            'status' => 'free',
-                            'locked' => false,
-                            'reason' => ''
-                        ];
-                        continue;
-                    }
+                    // if second phase already started, skip 4-limit lock
+                    if ($inSecondPhase) continue;
 
                     // ✅ Not approved yet -> lock + ensure block exists
                     self::ensureAbsenceBlockByTelCourse($conn, $tel, $course_id);
@@ -938,6 +1031,14 @@ class StudentController {
                 if ($tel) {
                     $course_id = self::getCourseIdByClass($conn, $class_id);
 
+                    // if ($course_id && self::hasHardLockByTelCourse($conn, $tel, $course_id)) {
+                    //     throw new Exception("❌ Attendance is hard-locked for student ID {$stu_id}. Admin cannot unlock this block");
+                    // }
+
+                    // if ($course_id && self::hasPendingAbsenceBlockByTelCourse($conn, $tel, $course_id)) {
+                    //     throw new Exception("❌ Attendance is locked for student ID {$stu_id}: pending admin absence approval");
+                    // }
+
                     if ($course_id && self::hasActiveApprovedPermissionByTelCourse($conn, $tel, $course_id, $today)) {
                         // ✅ FORCE PM
                         $present = 0;
@@ -1091,6 +1192,109 @@ class StudentController {
         $stmt->bind_param("si", $tel, $course_id);
         $stmt->execute();
         return $stmt->get_result()->num_rows > 0;
+    }
+
+    private static function hasHardLockByTelCourse($conn, $tel, $course_id) {
+        $stmt = $conn->prepare("\n            SELECT 1\n            FROM student_attendance_block b\n            JOIN students s ON b.stu_id = s.id\n            JOIN classes  c ON b.class_id = c.id\n            WHERE b.block_type = 'hard_lock'\n            AND b.is_approved = 0\n            AND s.tel = ?\n            AND c.course_id = ?\n            LIMIT 1\n        ");
+        $stmt->bind_param("si", $tel, $course_id);
+        $stmt->execute();
+        return $stmt->get_result()->num_rows > 0;
+    }
+
+    private static function getLatestHardLockUnlockDateByTelCourse($conn, $tel, $course_id) {
+        $stmt = $conn->prepare("\n            SELECT MAX(b.approved_at) AS latest_unlock_at\n            FROM student_attendance_block b\n            JOIN students s ON b.stu_id = s.id\n            JOIN classes  c ON b.class_id = c.id\n            WHERE b.block_type = 'hard_lock'\n            AND b.is_approved = 1\n            AND b.approved_at IS NOT NULL\n            AND s.tel = ?\n            AND c.course_id = ?\n        ");
+        $stmt->bind_param("si", $tel, $course_id);
+        $stmt->execute();
+        $row = $stmt->get_result()->fetch_assoc();
+        return $row ? $row['latest_unlock_at'] : null;
+    }
+
+    private static function hasPendingAbsenceBlockByTelCourse($conn, $tel, $course_id) {
+        $stmt = $conn->prepare("
+            SELECT 1
+            FROM student_attendance_block b
+            JOIN students s ON b.stu_id = s.id
+            JOIN classes  c ON b.class_id = c.id
+            WHERE b.block_type = 'absence'
+            AND b.is_approved = 0
+            AND s.tel = ?
+            AND c.course_id = ?
+            LIMIT 1
+        ");
+        $stmt->bind_param("si", $tel, $course_id);
+        $stmt->execute();
+        return $stmt->get_result()->num_rows > 0;
+    }
+
+    private static function getLatestApprovedAbsenceDateByTelCourse($conn, $tel, $course_id) {
+        $stmt = $conn->prepare("\n            SELECT MAX(COALESCE(b.approved_at, b.blocked_at)) AS latest_approved_at\n            FROM student_attendance_block b\n            JOIN students s ON b.stu_id = s.id\n            JOIN classes  c ON b.class_id = c.id\n            WHERE b.block_type = 'absence'\n            AND b.is_approved = 1\n            AND s.tel = ?\n            AND c.course_id = ?\n        ");
+        $stmt->bind_param("si", $tel, $course_id);
+        $stmt->execute();
+        $row = $stmt->get_result()->fetch_assoc();
+        return $row ? $row['latest_approved_at'] : null;
+    }
+
+    private static function countAbsenceAfterLatestApprovalInCurrentMonth($conn, $tel, $course_id, $date, $ruleStart) {
+        $approvedAt = self::getLatestApprovedAbsenceDateByTelCourse($conn, $tel, $course_id);
+        if (!$approvedAt) return 0;
+
+        $monthStart = date('Y-m-01 00:00:00', strtotime($date));
+        $monthEnd   = date('Y-m-t 23:59:59', strtotime($date));
+        $latestUnlockAt = self::getLatestHardLockUnlockDateByTelCourse($conn, $tel, $course_id);
+
+        $ruleStartDt = date('Y-m-d 00:00:00', strtotime($ruleStart));
+        $cycleStart = ($ruleStartDt > $monthStart) ? $ruleStartDt : $monthStart;
+        if (!empty($latestUnlockAt)) {
+            if ($latestUnlockAt > $cycleStart) {
+                $cycleStart = $latestUnlockAt;
+            }
+        }
+
+        if ($approvedAt < $cycleStart) return 0;
+
+        $start = ($approvedAt > $cycleStart) ? $approvedAt : $cycleStart;
+        $end   = $monthEnd;
+
+        $stmt = $conn->prepare("\n            SELECT COUNT(*) AS total\n            FROM student_records sr\n            JOIN students s ON sr.stu_id = s.id\n            JOIN classes c ON sr.class_id = c.id\n            WHERE s.tel = ?\n            AND c.course_id = ?\n            AND sr.absent = 1\n            AND sr.att_record_date BETWEEN ? AND ?\n        ");
+        $stmt->bind_param("siss", $tel, $course_id, $start, $end);
+        $stmt->execute();
+
+        return (int)$stmt->get_result()->fetch_assoc()['total'];
+    }
+
+    private static function hasApprovedAbsenceBlockInCurrentCycle($conn, $tel, $course_id, $date, $ruleStart) {
+        $monthStart = date('Y-m-01 00:00:00', strtotime($date));
+        $latestUnlockAt = self::getLatestHardLockUnlockDateByTelCourse($conn, $tel, $course_id);
+
+        $ruleStartDt = date('Y-m-d 00:00:00', strtotime($ruleStart));
+        $cycleStart = ($ruleStartDt > $monthStart) ? $ruleStartDt : $monthStart;
+        if (!empty($latestUnlockAt)) {
+            if ($latestUnlockAt > $cycleStart) {
+                $cycleStart = $latestUnlockAt;
+            }
+        }
+
+        $stmt = $conn->prepare("\n            SELECT 1\n            FROM student_attendance_block b\n            JOIN students s ON b.stu_id = s.id\n            JOIN classes  c ON b.class_id = c.id\n            WHERE b.block_type = 'absence'\n            AND b.is_approved = 1\n            AND COALESCE(b.approved_at, b.blocked_at) >= ?\n            AND s.tel = ?\n            AND c.course_id = ?\n            LIMIT 1\n        ");
+        $stmt->bind_param("ssi", $cycleStart, $tel, $course_id);
+        $stmt->execute();
+        return $stmt->get_result()->num_rows > 0;
+    }
+
+    private static function enforceHardLockAfterApproval($conn, $tel, $course_id, $date, $ruleStart) {
+        if (self::hasHardLockByTelCourse($conn, $tel, $course_id)) return;
+        if (!self::hasApprovedAbsenceBlockInCurrentCycle($conn, $tel, $course_id, $date, $ruleStart)) return;
+
+        $postApprovalAbsences = self::countAbsenceAfterLatestApprovalInCurrentMonth(
+            $conn,
+            $tel,
+            $course_id,
+            $date,
+            $ruleStart
+        );
+
+        if ($postApprovalAbsences >= 2) {
+            self::ensureHardLockByTelCourse($conn, $tel, $course_id);
+        }
     }
 
 

@@ -77,10 +77,18 @@
                     </div>
                 </div>
                 <!-- instructor -->
-            <?php elseif ($role === 'admin'): ?>
+            <?php elseif ($role === 'admin' || $role === 'superadmin'): ?>
                 <!-- admin -->
                 
                 <div class="border-bottom border-secondary">
+                    <?php if ($role === 'superadmin'): ?>
+                        <a href="pages/admin/blackliststudent.php" class="btn text-white w-100 text-start my-1 ps-2 border-0 fs-6 nav-link-ajax position-relative">
+                            <li class="m-0">
+                                <i class="bi bi-person-x-fill me-2"></i>
+                                Student Black List
+                            </li>
+                        </a>
+                    <?php endif; ?>
                     <button class="btn text-white w-100 my-1 px-2 border-0 fs-6 text-start d-flex justify-content-between align-items-center" 
                             type="button" 
                             data-bs-toggle="collapse" 

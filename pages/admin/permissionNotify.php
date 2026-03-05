@@ -243,12 +243,14 @@ $(function () {
 
     const html = pageData.map(p => {
       const isAbsence = p.request_type === 'absence';
+      const isHardLock = isAbsence && String(p.block_mode || '').toLowerCase() === 'hard_lock';
 
       const isApproved = isAbsence
-        ? (parseInt(p.status, 10) === 1)
+        ? (parseInt(p.status, 10) === 1 || isHardLock)
         : (String(p.status).toLowerCase() === 'approved');
 
       const isPending = !isApproved;
+      const canApprove = isPending && !isHardLock;
 
       const absStu = parseInt(p.absence_approved_by_student, 10) || 0;
       const perStu = parseInt(p.permission_approved_by_student, 10) || 0;
@@ -270,7 +272,7 @@ $(function () {
           <td>
             ${
               isAbsence
-                ? `<span class="badge bg-danger">ABSENCE LIMIT</span>`
+                ? `<span class="badge ${isHardLock ? 'bg-dark' : 'bg-danger'}">${isHardLock ? 'HARD LOCK' : 'ABSENCE LIMIT'}</span>`
                 : `<span class="date-pill">
                     <i class="bi bi-calendar3 me-1"></i>
                     ${escapeHtml(p.start_date)} → ${escapeHtml(p.end_date)}
@@ -281,14 +283,14 @@ $(function () {
           <td class="text-muted small">${escapeHtml(p.reason || '-')}</td>
 
           <td class="text-center">
-            <span class="status-pill ${isPending ? 'pending' : 'approved'}">
-              ${isPending ? 'PENDING' : 'APPROVED'}
+            <span class="status-pill ${isHardLock ? 'approved' : (isPending ? 'pending' : 'approved')}">
+              ${isHardLock ? 'HARD LOCK' : (isPending ? 'PENDING' : 'APPROVED')}
             </span>
           </td>
 
           <td class="text-end">
             ${
-              isPending
+              canApprove
                 ? `<button class="btn btn-success btn-sm btnApprove"
                       data-id="${escapeHtml(p.request_id)}"
                       data-type="${escapeHtml(p.request_type)}">
@@ -316,16 +318,27 @@ $(function () {
       return;
     }
 
+    const pageItems = buildPageItems(totalPages, currentPage);
+
     let html = `
       <li class="page-item ${currentPage === 1 ? 'disabled' : ''}">
         <a class="page-link" href="#" data-page="${currentPage - 1}">Prev</a>
       </li>
     `;
 
-    for (let i = 1; i <= totalPages; i++) {
+    for (const item of pageItems) {
+      if (item === '...') {
+        html += `
+          <li class="page-item disabled d-none d-sm-inline">
+            <span class="page-link">...</span>
+          </li>
+        `;
+        continue;
+      }
+
       html += `
-        <li class="page-item ${i === currentPage ? 'active' : ''}">
-          <a class="page-link" href="#" data-page="${i}">${i}</a>
+        <li class="page-item ${item === currentPage ? 'active' : ''}">
+          <a class="page-link" href="#" data-page="${item}">${item}</a>
         </li>
       `;
     }
@@ -337,6 +350,34 @@ $(function () {
     `;
 
     $('#pagination').html(html);
+  }
+
+  // Keep pagination compact for large datasets: 1 ... (window) ... N
+  function buildPageItems(totalPages, page) {
+    if (totalPages <= 7) {
+      return Array.from({ length: totalPages }, (_, i) => i + 1);
+    }
+
+    const items = [1];
+    let start = page - 1;
+    let end = page + 1;
+
+    if (page <= 4) {
+      start = 2;
+      end = 5;
+    } else if (page >= totalPages - 3) {
+      start = totalPages - 4;
+      end = totalPages - 1;
+    }
+
+    if (start > 2) items.push('...');
+    for (let i = start; i <= end; i++) {
+      if (i > 1 && i < totalPages) items.push(i);
+    }
+    if (end < totalPages - 1) items.push('...');
+
+    items.push(totalPages);
+    return items;
   }
 
   $(document)
@@ -546,5 +587,15 @@ $(function () {
 .status-pill.approved {
   background: #d1e7dd;
   color: #0f5132;
+}
+
+#pagination {
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+#pagination .page-link {
+  min-width: 34px;
+  text-align: center;
 }
 </style>

@@ -898,9 +898,11 @@ $class_id = isset($_GET['class_id']) ? intval($_GET['class_id']) : 0;
 
                             const hardLocked = lockInfo.locked === true &&
                                     lockInfo.status !== 'permission_locked';
-                            const defaultAbsent = lockInfo.status === 'free';
+                            const defaultAbsent = !lockInfo.status || lockInfo.status === 'free';
 
                             const reasonText = lockInfo.reason || "";
+                            const isHardLockAbsence = autoAbsentByRule &&
+                                /hard\s*lock|black\s*list/i.test(reasonText);
                             // ===============================
                             // PM RENDER LOGIC
                             // ===============================
@@ -928,7 +930,9 @@ $class_id = isset($_GET['class_id']) ? intval($_GET['class_id']) : 0;
 
                                         <td colspan="2">
                                             <span class="fw-bold text-danger">
-                                                🚫 Attendance locked. Please meet admin for approval.
+                                                ${isHardLockAbsence
+                                                    ? '⛔ BLACKLIST (HARD LOCK)'
+                                                    : '🚫 Attendance locked. Please meet admin for approval.'}
                                             </span>
                                         </td>
                                     </tr>
