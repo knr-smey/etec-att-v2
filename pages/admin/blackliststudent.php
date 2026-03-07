@@ -7,8 +7,16 @@
         <button class="btn btn-sm btn-dark" id="btnRefreshBlacklist">
             <i class="bi bi-arrow-clockwise me-1"></i> Refresh
         </button>
+       
     </div>
-
+    <div class="mb-3">
+        <input 
+            type="text" 
+            id="searchBlacklist" 
+            class="form-control form-control-sm w-25 shadow-none"
+            placeholder="Search student by name..."
+        >
+    </div>
     <div class="table-responsive">
         <table class="table table-hover align-middle">
             <thead class="table-light">
@@ -35,6 +43,7 @@
 
 <script>
 $(function () {
+    let blacklistData = [];
 
     function esc(value) {
         return String(value ?? '')
@@ -59,9 +68,6 @@ $(function () {
         }
 
         const html = rows.map((row, index) => {
-            const classText = [row.class_name, row.class_code].filter(Boolean).join(' (') + (row.class_code ? ')' : '');
-            const reason = row.admin_comment || 'Hard lock: exceeded absence limit after admin approval';
-
             return `
                 <tr>
                     <td>${index + 1}</td>
@@ -87,6 +93,7 @@ $(function () {
 
     function fetchBlacklist() {
         const $tbody = $('#blacklistTbody');
+
         $tbody.html(`
             <tr>
                 <td colspan="7" class="text-center text-muted py-4">
@@ -97,6 +104,7 @@ $(function () {
 
         $.getJSON('api.php', { endpoint: 'fetch_blacklist_students' })
             .done(function (res) {
+
                 if (!res || !res.status) {
                     $tbody.html(`
                         <tr>
@@ -108,9 +116,12 @@ $(function () {
                     return;
                 }
 
-                renderRows(res.data || []);
+                blacklistData = res.data || [];
+                renderRows(blacklistData);
+
             })
             .fail(function () {
+
                 $tbody.html(`
                     <tr>
                         <td colspan="7" class="text-center text-danger py-4">
@@ -118,31 +129,62 @@ $(function () {
                         </td>
                     </tr>
                 `);
+
             });
     }
 
+    // 🔎 Search filter
+    $('#searchBlacklist').on('keyup', function () {
+
+        const keyword = $(this).val().toLowerCase();
+
+        const filtered = blacklistData.filter(row =>
+            (row.full_name || '').toLowerCase().includes(keyword) ||
+            (row.tel || '').toLowerCase().includes(keyword) ||
+            (row.course || '').toLowerCase().includes(keyword)
+        );
+
+        renderRows(filtered);
+
+    });
+
+    // 🔓 Unblock student
     $(document).on('click', '.btnUnblock', function () {
+
         const $btn = $(this);
         const blockId = parseInt($btn.data('id'), 10);
 
         const original = $btn.html();
-        $btn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm"></span>');
+        $btn.prop('disabled', true)
+            .html('<span class="spinner-border spinner-border-sm"></span>');
 
-        $.post('api.php?endpoint=unblock_blacklist_student', { block_id: blockId }, function (res) {
-            if (!res || !res.status) {
-                // alert(res?.message || 'Failed to unblock student');
-                $btn.prop('disabled', false).html(original);
-                return;
-            }
+        $.post(
+            'api.php?endpoint=unblock_blacklist_student',
+            { block_id: blockId },
+            function (res) {
 
-            fetchBlacklist();
-        }, 'json').fail(function () {
-            // alert('Network error while unblocking student');
+                if (!res || !res.status) {
+                    $btn.prop('disabled', false).html(original);
+                    return;
+                }
+
+                fetchBlacklist();
+
+            },
+            'json'
+        ).fail(function () {
+
             $btn.prop('disabled', false).html(original);
+
         });
+
     });
 
+    // 🔄 Refresh button
     $('#btnRefreshBlacklist').on('click', fetchBlacklist);
+
+    // initial load
     fetchBlacklist();
+
 });
 </script>

@@ -306,6 +306,14 @@ $(document).ready(function () {
                 >
                   <i class="bi bi-pencil"></i>
                 </button>
+                <button
+                  class="btn btn-sm btn-warning btnLateStudent"
+                  data-stu="${stu.id}"
+                  data-class="${stu.class_id}"
+                  data-name="${stu.full_name}"
+                >
+                LATE
+                </button>
             </div>
            
           </td>
@@ -313,8 +321,76 @@ $(document).ready(function () {
       `);
     });
   }
+
+  $(document).off("click", ".btnLateStudent").on("click", ".btnLateStudent", function () {
+
+    const btn = $(this);
+    const stuId = btn.data("stu");
+    const classId = btn.data("class");
+
+    const today = new Date();
+    const date = today.getFullYear() + '-' +
+        String(today.getMonth()+1).padStart(2,'0') + '-' +
+        String(today.getDate()).padStart(2,'0');
+
+    // save original button text
+    const originalText = btn.html();
+
+    // disable button and show spinner
+    btn.prop("disabled", true);
+    btn.html('<i class="fa fa-spinner fa-spin"></i> Processing');
+
+    $.ajax({
+        url: "api.php?endpoint=mark_student_late",
+        method: "POST",
+        dataType: "json",
+        data: {
+            studentId: stuId,
+            class_id: classId,
+            att_date: date
+        },
+        success: function (res) {
+            btn.prop("disabled", false);
+            btn.html(originalText);
+
+            if(res.status){
+
+                Swal.fire({
+                    icon: "success",
+                    title: "Marked Late",
+                    text: res.message,
+                    timer: 1500,
+                    showConfirmButton: false
+                });
+
+            }else{
+
+                Swal.fire({
+                    icon: "warning",
+                    title: "Attendance Not Yet Record",
+                    text: res.message
+                });
+
+            }
+        },
+        error:function(e){
+
+            btn.prop("disabled", false);
+            btn.html(originalText);
+
+            Swal.fire({
+                icon: "error",
+                title: "Error",
+                text: "Failed to mark student late"
+            });
+
+            console.error("Error marking student as late:", e);
+        }
+    });
+
+  });
   
-  $(document).on("click", ".view-student-detail", function(   e) {
+  $(document).on("click", ".view-student-detail", function(e) {
       e.preventDefault();
 
       const url = $(this).attr("href");

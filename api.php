@@ -1231,6 +1231,18 @@ switch ($endpoint) {
         response($result['status'], $result['message'], $result['data']);
     break;
 
+    case "mark_student_late":
+
+        if($method !== 'POST') response(false, "Method not allowed");
+
+        $studentId = $_POST['studentId'] ?? null;
+        $classId = $_POST['class_id'] ?? null;
+        $attDate = $_POST['att_date'] ?? null;
+
+        StudentController::markStudentLate($conn, $studentId, $classId, $attDate);
+
+    break;
+
     case "get_student_for_certificate":
         if ($method !== 'GET') response(false, "Method not allowed");
         // StudentPermission::getStudentRequests($conn);

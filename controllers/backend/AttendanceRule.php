@@ -23,7 +23,7 @@ class AttendanceRule {
         $limit_count = $_POST['limit_count'] ?? null;
         $period_type = $_POST['period_type'] ?? null; // week | month
         $start_date  = $_POST['start_date']  ?? null;
-        $is_active   = isset($_POST['is_active']) ? 1 : 0;
+        $is_active   = (isset($_POST['is_active']) && (int)$_POST['is_active'] === 1) ? 1 : 0;
         $created_by  = $_POST['created_by'] ?? null;
 
         if (!$rule_type || !$limit_count || !$period_type || !$start_date) {
@@ -78,7 +78,7 @@ class AttendanceRule {
         $limit       = $_POST['limit_count'] ?? null;
         $period      = $_POST['period_type'] ?? null;
         $start       = $_POST['start_date'] ?? null;
-        $is_active   = isset($_POST['is_active']) ? 1 : 0;
+        $is_active   = (isset($_POST['is_active']) && (int)$_POST['is_active'] === 1) ? 1 : 0;
 
         if (!$id || !$limit || !$period || !$start) {
             self::response(false, "Missing required fields");
@@ -101,7 +101,7 @@ class AttendanceRule {
     public static function toggleRule($conn) {
 
         $id     = $_POST['id'] ?? null;
-        $active = $_POST['is_active'] ?? 0;
+        $active = (int)($_POST['is_active'] ?? 0);
 
         if (!$id) {
             self::response(false, "Rule ID missing");
@@ -148,11 +148,17 @@ class AttendanceRule {
             FROM attendance_rules
             WHERE rule_type = ?
             AND is_active = 1
+            ORDER BY created_at DESC, id DESC
         ");
         $stmt->bind_param("s", $type);
         $stmt->execute();
 
-        return $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+        $rules = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+        foreach ($rules as &$rule) {
+            $rule['is_active'] = (int)$rule['is_active'];
+        }
+
+        return $rules;
     }
 
 
@@ -162,9 +168,10 @@ class AttendanceRule {
     public static function getRuleForClass($conn, $ruleType, $classTerm) {
 
         $rules = self::getActiveRules($conn, $ruleType);
+        $classTerm = strtolower(trim((string)$classTerm));
 
         $isWeekendClass = in_array(
-            strtolower($classTerm),
+            $classTerm,
             ['sat & sun', 'saturday', 'sunday']
         );
 
