@@ -327,42 +327,72 @@ class ClassController {
                 throw new Exception("Failed to update class");
             }
 
-            // 2️⃣ If status == end → insert to end_class
+            // 2️⃣ If status == end
             if ($class_status === 'end') {
 
-                // Insert into end_class
-                $insertEnd = $conn->prepare("
-                    INSERT INTO end_class (class_id, user_id, end_date, created_at, updated_at)
-                    VALUES (?, ?, NOW(), NOW(), NOW())
-                ");
-                $insertEnd->bind_param("ii", $class_id, $user_id);
-
-                if (!$insertEnd->execute()) {
-                    throw new Exception("Failed to insert end_class");
-                }
-
-                $end_class_id = $insertEnd->insert_id;
-
-                // 3️⃣ Get all students of this class
-                $students = $conn->prepare("
+                // Check if end_class already exists
+                $checkEnd = $conn->prepare("
                     SELECT id 
-                    FROM students 
-                    WHERE class_id = ?
+                    FROM end_class 
+                    WHERE class_id = ? AND user_id = ?
+                    LIMIT 1
                 ");
-                $students->bind_param("i", $class_id);
-                $students->execute();
-                $result = $students->get_result();
+                $checkEnd->bind_param("ii", $class_id, $user_id);
+                $checkEnd->execute();
+                $checkResult = $checkEnd->get_result();
 
-                // 4️⃣ Insert into end_class_students
-                $insertStudent = $conn->prepare("
-                    INSERT INTO end_class_students (end_class_id, student_id, discounts, created_at)
-                    VALUES (?, ?, 0, NOW())
-                ");
+                if ($row = $checkResult->fetch_assoc()) {
 
-                while ($row = $result->fetch_assoc()) {
-                    $student_id = $row['id']; // ✅ FIXED
-                    $insertStudent->bind_param("ii", $end_class_id, $student_id);
-                    $insertStudent->execute();
+                    // ✅ Already exists → UPDATE end_date
+                    $end_class_id = $row['id'];
+
+                    $updateEnd = $conn->prepare("
+                        UPDATE end_class
+                        SET end_date = NOW(), updated_at = NOW()
+                        WHERE id = ?
+                    ");
+                    $updateEnd->bind_param("i", $end_class_id);
+
+                    if (!$updateEnd->execute()) {
+                        throw new Exception("Failed to update end_class");
+                    }
+
+                } else {
+
+                    // ✅ Insert new end_class
+                    $insertEnd = $conn->prepare("
+                        INSERT INTO end_class (class_id, user_id, end_date, created_at, updated_at)
+                        VALUES (?, ?, NOW(), NOW(), NOW())
+                    ");
+                    $insertEnd->bind_param("ii", $class_id, $user_id);
+
+                    if (!$insertEnd->execute()) {
+                        throw new Exception("Failed to insert end_class");
+                    }
+
+                    $end_class_id = $insertEnd->insert_id;
+
+                    // 3️⃣ Get students
+                    $students = $conn->prepare("
+                        SELECT id 
+                        FROM students 
+                        WHERE class_id = ?
+                    ");
+                    $students->bind_param("i", $class_id);
+                    $students->execute();
+                    $result = $students->get_result();
+
+                    // 4️⃣ Insert into end_class_students
+                    $insertStudent = $conn->prepare("
+                        INSERT INTO end_class_students (end_class_id, student_id, discounts, created_at)
+                        VALUES (?, ?, 0, NOW())
+                    ");
+
+                    while ($row = $result->fetch_assoc()) {
+                        $student_id = $row['id'];
+                        $insertStudent->bind_param("ii", $end_class_id, $student_id);
+                        $insertStudent->execute();
+                    }
                 }
             }
 

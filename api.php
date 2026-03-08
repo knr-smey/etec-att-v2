@@ -34,6 +34,7 @@ require_once(__DIR__ . '/controllers/frontend/ClassController.php');
 require_once(__DIR__ . '/controllers/frontend/StudentController.php');
 require_once(__DIR__ . '/controllers/frontend/StudentPermission.php');
 require_once(__DIR__ . '/controllers/frontend/BlacklistController.php');
+require_once(__DIR__ . '/controllers/frontend/ReqCertificateteController.php');
 
 
 header('Content-Type: application/json');
@@ -1244,9 +1245,40 @@ switch ($endpoint) {
     break;
 
     case "get_student_for_certificate":
-        if ($method !== 'GET') response(false, "Method not allowed");
-        // StudentPermission::getStudentRequests($conn);
 
+        if($method !== 'POST') response(false, "Method not allowed");
+
+        $class_id = $_POST['class_id'] ?? 0;
+
+        $instructorId = intval($_SESSION['user']['id'] ?? 1);
+
+        if(!$instructorId){
+            response(false, "User not authenticated");
+        }
+
+        ReqCertificateteController::getStudentRequests($conn, $class_id, $instructorId);
+
+    break;
+
+    case "update_student_name":
+        $class_id = $_POST['class_id'] ?? 0;
+        ReqCertificateteController::saveUpdatedName($conn, $_POST['student_id'] ?? 0, $_POST['full_name'] ?? '');
+    break;
+
+    case "approve_student_request":
+
+        if($method !== 'POST') response(false, "Method not allowed");
+
+        $end_class_id = intval($_POST['end_class_id'] ?? 0);
+        $student_id   = intval($_POST['student_id'] ?? 0);
+
+        if(!$end_class_id || !$student_id){
+            response(false, "Invalid parameters");
+        }
+
+        ReqCertificateteController::approveStudentRequest($conn, $end_class_id, $student_id);
+
+    break;
     default:
         response(false, "Invalid endpoint");
 }

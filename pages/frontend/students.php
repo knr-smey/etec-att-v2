@@ -337,6 +337,11 @@ $class_id = isset($_GET['class_id']) ? intval($_GET['class_id']) : 0;
                         </div>
                     </form>
                 </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                        Close
+                    </button>
+                </div>
             </div>
         </div>
     </div>
@@ -549,34 +554,187 @@ $class_id = isset($_GET['class_id']) ? intval($_GET['class_id']) : 0;
             loadStudents(class_id)
         })
 
-        $('#btnRequestCertificate').on('click', function() {
-            const $tbody = $('#certificate-pass-tbody');
-            const classId = $(this).data('class-id');
-            
-            console.log('Button clicked!');
-            console.log('Class ID:', classId);
-            
-            // Show loading in table
-            $tbody.html(`
-                <tr>
-                    <td colspan="4" class="text-center text-muted">Loading...</td>
-                </tr>
-            `);
+        $('#btnRequestCertificate').off('click').on('click', function() {
 
-            // Test AJAX call
+            const classId = $(this).data('class-id');
             $.ajax({
-                url: `api.php?endpoint=get_student_for_certificate&class_id=${classId}`,
-                type: 'GET',
+                url: `api.php?endpoint=get_student_for_certificate`,
+                method: 'POST',
                 dataType: 'json',
-                success: function(res) {
-                    console.log('AJAX Response:', res);
+                data: { class_id: classId },
+
+               success: function(res) {
+
+                    const $tbody = $('#certificate-pass-tbody');
+                    let html = '';
+
+                    const students = res.data.students;
+                    const endClassId = res.data.end_class_id;
+
+                    if(!res.status || students.length === 0){
+                        $tbody.html(`
+                            <tr>
+                                <td colspan="4" class="text-center text-muted">No students found</td>
+                            </tr>
+                        `);
+                        return;
+                    }
+
+                    students.forEach((student, index) => {
+
+                        const blocked = student.attendance_status === 'blocked';
+                        const approved = student.is_approved == 1;
+
+                        html += `
+                            <tr class="${blocked ? 'table-danger' : ''}">
+                                <td>${index + 1}</td>
+
+                                <td>
+                                    <input 
+                                        type="text" 
+                                        class="form-control form-control-sm student-name" 
+                                        value="${student.full_name.toUpperCase()}" 
+                                        data-id="${student.id}"
+                                    >
+                                </td>
+
+                                <td>${student.gender}</td>
+
+                                <td>
+                                    ${blocked 
+                                        ? `<span class="badge bg-danger">Blocked</span>`
+                                        : approved
+                                            ? `<span class="badge bg-success">Approved</span>`
+                                            : `
+                                                <button class="btn btn-sm btn-primary btn-save-name" data-id="${student.id}">Save</button>
+                                                <button 
+                                                    class="btn btn-sm btn-success btn-approve-req"
+                                                    data-id="${student.id}"
+                                                    data-end-class-id="${endClassId}">
+                                                    Approve
+                                                </button>
+                                            `
+                                    }
+                                </td>
+                            </tr>
+                        `;
+                    });
+
+                    $tbody.html(html);
                 },
+
                 error: function(err) {
-                    console.error('AJAX Error:', err);
+                    console.error("AJAX ERROR:", err);
                 }
+
             });
+
         });
 
+        $(document)
+            .off('click', '.btn-save-name')
+            .on('click', '.btn-save-name', function(e){
+
+                e.preventDefault();
+
+                const $btn = $(this); // current button
+                const studentId = $btn.data('id');
+                const newName = $btn.closest('tr').find('.student-name').val();
+
+                // show loading
+                $btn.prop('disabled', true);
+                $btn.html(`
+                    <span class="spinner-border spinner-border-sm me-1"></span>
+                    Saving...
+                `);
+
+                $.ajax({
+                    url: 'api.php?endpoint=update_student_name',
+                    method: 'POST',
+                    dataType: 'json',
+                    data: { student_id: studentId, full_name: newName },
+
+                    success: function(res) {
+
+                        if(res.status){
+                            showAlert("Student name updated successfully");
+
+                            // success state
+                            $btn.removeClass("btn-warning")
+                                .addClass("btn-success")
+                                .html("Saved ✓");
+
+                            // return to normal after 1.5s
+                            setTimeout(()=>{
+                                $btn.removeClass("btn-success")
+                                    .addClass("btn-warning")
+                                    .html("Save")
+                                    .prop("disabled", false);
+                            },1500);
+
+                        } else {
+                            alert(res.message || "Failed to update name");
+
+                            $btn.html("Save").prop("disabled", false);
+                        }
+
+                    },
+
+                    error: function(err) {
+                        console.error("AJAX ERROR:", err);
+                        alert("An error occurred while updating name");
+
+                        $btn.html("Save").prop("disabled", false);
+                    }
+
+                });
+
+        });
+
+        // Approve student request
+        $(document)
+        .off('click', '.btn-approve-req')
+        .on('click', '.btn-approve-req', function(e){
+
+            e.preventDefault();
+
+            const $btn = $(this);
+
+            const studentId = $btn.data('id');
+            const endClassId = $btn.data('end-class-id');
+
+            $btn.prop("disabled", true).text("Approving...");
+
+            $.ajax({
+                url: "api.php?endpoint=approve_student_request",
+                method: "POST",
+                dataType: "json",
+                data: {
+                    student_id: studentId,
+                    end_class_id: endClassId
+                },
+
+                success: function(res){
+
+                    if(res.status){
+
+                        $btn
+                        .removeClass("btn-success")
+                        .addClass("btn-secondary")
+                        .text("Approved");
+
+                    }else{
+
+                        alert(res.message);
+                        $btn.prop("disabled", false).text("Approve");
+
+                    }
+
+                }
+
+            });
+
+        });
         function toggleSpinner(button, show) {
             const $btn = $(button);
             const $spinner = $btn.find(".spinner-border");
