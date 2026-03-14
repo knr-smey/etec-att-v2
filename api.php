@@ -28,6 +28,7 @@ require_once(__DIR__ . '/controllers/backend/ClassAndStuController.php');
 require_once(__DIR__ . '/controllers/backend/AttendanceRule.php');
 require_once(__DIR__ . '/controllers/backend/DiscountController.php');
 require_once(__DIR__ . '/controllers/backend/BackupController.php');
+require_once(__DIR__ . '/controllers/backend/AttAnalyController.php');
 
 
 require_once(__DIR__ . '/controllers/frontend/ClassController.php');
@@ -1279,6 +1280,12 @@ switch ($endpoint) {
         ReqCertificateteController::approveStudentRequest($conn, $end_class_id, $student_id);
 
     break;
+
+    case "att_filter":
+        $date = $_GET['date'] ?? null;
+        AttAnalyController::filter_by_date($conn, $date);
+    break;
+
     default:
         response(false, "Invalid endpoint");
 }

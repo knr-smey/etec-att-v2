@@ -89,6 +89,12 @@
                             </li>
                         </a>
                     <?php endif; ?>
+                    <a href="pages/admin/att_analysis.php" class="btn text-white w-100 text-start my-1 ps-2 border-0 fs-6 nav-link-ajax position-relative">
+                        <li class="m-0">
+                            <i class="bi bi-clipboard-data me-2"></i>
+                            Attendance Analysis
+                        </li>
+                    </a>
                     <button class="btn text-white w-100 my-1 px-2 border-0 fs-6 text-start d-flex justify-content-between align-items-center" 
                             type="button" 
                             data-bs-toggle="collapse" 
