@@ -8,3 +8,29 @@ VALUES
 
 ALTER TABLE users 
 MODIFY role ENUM('admin','instructor','student','superadmin');
+
+
+
+
+
+
+
+
+
+-- New table for certificate requests
+CREATE TABLE req_certificate (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    class_id INT NOT NULL,
+    user_id INT NOT NULL,
+    request_date DATETIME NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    INDEX (class_id),
+    INDEX (user_id)
+);
+
+RENAME TABLE end_class_students TO req_class_student;
+
+ALTER TABLE req_class_student 
+CHANGE end_class_id req_certificate_id INT NOT NULL;

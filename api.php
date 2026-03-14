@@ -1270,14 +1270,14 @@ switch ($endpoint) {
 
         if($method !== 'POST') response(false, "Method not allowed");
 
-        $end_class_id = intval($_POST['end_class_id'] ?? 0);
-        $student_id   = intval($_POST['student_id'] ?? 0);
+        $req_certificate_id = intval($_POST['req_certificate_id'] ?? 0);
+        $student_id         = intval($_POST['student_id'] ?? 0);
 
-        if(!$end_class_id || !$student_id){
+        if(!$req_certificate_id || !$student_id){
             response(false, "Invalid parameters");
         }
 
-        ReqCertificateteController::approveStudentRequest($conn, $end_class_id, $student_id);
+        ReqCertificateteController::approveStudentRequest($conn, $req_certificate_id, $student_id);
 
     break;
 

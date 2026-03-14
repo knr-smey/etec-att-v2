@@ -94,8 +94,12 @@ $discount_to   = $end_date ? date('d-m-Y', strtotime($end_date . ' +14 days')) :
         </div>
         <!-- Note -->
         <div class="mt-2 mb-3">
-          <p class="mb-0 text-danger fw-bold" style="font-size: 13px;">
-            ចំណាំ៖ ការបញ្ចុះតម្លៃមានសុពលភាពចាប់ពីថ្ងៃទី <?= $discount_from ?> ដល់ថ្ងៃទី <?= $discount_to ?> (រយៈពេល ២ សប្តាហ៍)។
+          <p class="mb-0 text-danger fw-bold" style="font-size: 13px;line-height: 2;">
+            ចំណាំ៖ 
+            <br>
+             - ការបញ្ចុះតម្លៃមានសុពលភាពចាប់ពីថ្ងៃទី <?= $discount_from ?> ដល់ថ្ងៃទី <?= $discount_to ?> (រយៈពេល ២ សប្តាហ៍)។
+            <br>
+             - រាល់ការ Discount ទាំងអស់គឺគិតចេញពីតម្លៃដើមលើគ្រប់វគ្គសិក្សា ដែលមាននៅមជ្ឈមណ្ឌល ។
           </p>
         </div>
 

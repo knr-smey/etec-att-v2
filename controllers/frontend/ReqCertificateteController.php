@@ -14,8 +14,8 @@ class ReqCertificateteController{
 
     public static function getStudentRequests($conn, $classid, $user_id)
     {
-        // 1️⃣ Check if record already exists
-        $checkSql = "SELECT id FROM end_class WHERE class_id = ? AND user_id = ? LIMIT 1";
+        // 1️⃣ Check if request already exists
+        $checkSql = "SELECT id FROM req_certificate WHERE class_id = ? AND user_id = ? LIMIT 1";
         $checkStmt = $conn->prepare($checkSql);
         $checkStmt->bind_param("ii", $classid, $user_id);
         $checkStmt->execute();
@@ -23,18 +23,18 @@ class ReqCertificateteController{
 
         if ($row = $checkResult->fetch_assoc()) {
             // already exists
-            $end_class_id = $row['id'];
+            $req_certificate_id = $row['id'];
         } else {
 
-            // 2️⃣ Insert if not exists
-            $insertSql = "INSERT INTO end_class (class_id, user_id)
-                        VALUES (?, ?)";
+            // 2️⃣ Insert new request
+            $insertSql = "INSERT INTO req_certificate (class_id, user_id, request_date)
+                        VALUES (?, ?, NOW())";
 
             $insertStmt = $conn->prepare($insertSql);
             $insertStmt->bind_param("ii", $classid, $user_id);
             $insertStmt->execute();
 
-            $end_class_id = $conn->insert_id;
+            $req_certificate_id = $conn->insert_id;
         }
 
         // 3️⃣ Fetch students
@@ -56,25 +56,14 @@ class ReqCertificateteController{
                     )
                     THEN 'blocked'
                     ELSE 'ok'
-                END AS attendance_status,
-
-                CASE
-                    WHEN EXISTS (
-                        SELECT 1
-                        FROM end_class_students ecs
-                        WHERE ecs.student_id = s.id
-                        AND ecs.end_class_id = ?
-                    )
-                    THEN 1
-                    ELSE 0
-                END AS is_approved
+                END AS attendance_status
 
             FROM students s
             WHERE s.class_id = ?
         ";
 
         $stmt = $conn->prepare($sql);
-        $stmt->bind_param("ii", $end_class_id, $classid);
+        $stmt->bind_param("i", $classid);
         $stmt->execute();
 
         $result = $stmt->get_result();
@@ -86,7 +75,7 @@ class ReqCertificateteController{
 
         // 4️⃣ Response
         return self::response(true, "Student requests retrieved successfully", [
-            "end_class_id" => $end_class_id,
+            "req_certificate_id" => $req_certificate_id,
             "students" => $students
         ]);
     }
@@ -107,16 +96,16 @@ class ReqCertificateteController{
         }
     }
 
-    public static function approveStudentRequest($conn, $end_class_id, $student_id)
+    public static function approveStudentRequest($conn, $req_certificate_id, $student_id)
     {
         // check if student already exists
         $checkSql = "SELECT id 
-                    FROM end_class_students 
-                    WHERE end_class_id = ? AND student_id = ? 
+                    FROM req_class_student
+                    WHERE req_certificate_id = ? AND student_id = ?
                     LIMIT 1";
 
         $checkStmt = $conn->prepare($checkSql);
-        $checkStmt->bind_param("ii", $end_class_id, $student_id);
+        $checkStmt->bind_param("ii", $req_certificate_id, $student_id);
         $checkStmt->execute();
         $result = $checkStmt->get_result();
 
@@ -125,11 +114,11 @@ class ReqCertificateteController{
         }
 
         // insert student
-        $sql = "INSERT INTO end_class_students (end_class_id, student_id, discounts)
+        $sql = "INSERT INTO req_class_student (req_certificate_id, student_id, discounts)
                 VALUES (?, ?, 0)";
 
         $stmt = $conn->prepare($sql);
-        $stmt->bind_param("ii", $end_class_id, $student_id);
+        $stmt->bind_param("ii", $req_certificate_id, $student_id);
 
         if ($stmt->execute()) {
 

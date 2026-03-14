@@ -569,8 +569,7 @@ $class_id = isset($_GET['class_id']) ? intval($_GET['class_id']) : 0;
                     let html = '';
 
                     const students = res.data.students;
-                    const endClassId = res.data.end_class_id;
-
+                    const reqCertificateId = res.data.req_certificate_id;
                     if(!res.status || students.length === 0){
                         $tbody.html(`
                             <tr>
@@ -610,7 +609,7 @@ $class_id = isset($_GET['class_id']) ? intval($_GET['class_id']) : 0;
                                                 <button 
                                                     class="btn btn-sm btn-success btn-approve-req"
                                                     data-id="${student.id}"
-                                                    data-end-class-id="${endClassId}">
+                                                    data-req-certificate-id="${reqCertificateId}">
                                                     Approve
                                                 </button>
                                             `
@@ -619,7 +618,6 @@ $class_id = isset($_GET['class_id']) ? intval($_GET['class_id']) : 0;
                             </tr>
                         `;
                     });
-
                     $tbody.html(html);
                 },
 
@@ -667,7 +665,7 @@ $class_id = isset($_GET['class_id']) ? intval($_GET['class_id']) : 0;
                             // return to normal after 1.5s
                             setTimeout(()=>{
                                 $btn.removeClass("btn-success")
-                                    .addClass("btn-warning")
+                                    .addClass("btn-primary")
                                     .html("Save")
                                     .prop("disabled", false);
                             },1500);
@@ -701,7 +699,7 @@ $class_id = isset($_GET['class_id']) ? intval($_GET['class_id']) : 0;
             const $btn = $(this);
 
             const studentId = $btn.data('id');
-            const endClassId = $btn.data('end-class-id');
+            const reqCertificateId  = $btn.data('req-certificate-id');
 
             $btn.prop("disabled", true).text("Approving...");
 
@@ -711,11 +709,11 @@ $class_id = isset($_GET['class_id']) ? intval($_GET['class_id']) : 0;
                 dataType: "json",
                 data: {
                     student_id: studentId,
-                    end_class_id: endClassId
+                    req_certificate_id: reqCertificateId
                 },
 
                 success: function(res){
-
+                    // console.log(res);
                     if(res.status){
 
                         $btn
