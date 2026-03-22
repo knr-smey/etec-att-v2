@@ -87,6 +87,12 @@
                                 <i class="bi bi-person-x-fill me-2"></i>
                                 Student Black List
                             </li>
+                        </a> 
+                        <a href="pages/admin/certificate_req.php" class="btn text-white w-100 text-start my-1 ps-2 border-0 fs-6 nav-link-ajax position-relative">
+                            <li class="m-0">
+                                <i class="bi bi-award-fill me-2"></i>
+                                Request Certificate
+                            </li>
                         </a>
                     <?php endif; ?>
                     <a href="pages/admin/att_analysis.php" class="btn text-white w-100 text-start my-1 ps-2 border-0 fs-6 nav-link-ajax position-relative">

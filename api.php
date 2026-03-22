@@ -1286,6 +1286,14 @@ switch ($endpoint) {
         AttAnalyController::filter_by_date($conn, $date);
     break;
 
+    case "get_requested_certificates":
+
+        if ($method !== 'GET') response(false, "Method not allowed");
+
+        ReqCertificateteController::getRequestedCertificates($conn);
+
+    break;
+
     default:
         response(false, "Invalid endpoint");
 }

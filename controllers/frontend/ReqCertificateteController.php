@@ -130,4 +130,63 @@ class ReqCertificateteController{
 
         return self::response(false, "Failed to approve student");
     }
+
+   public static function getRequestedCertificates($conn)
+    {
+        $sql = "
+            SELECT 
+                s.id AS student_id,
+                s.full_name AS student_name,
+
+                c.id AS class_id,
+                c.lesson,
+                c.class_status,
+
+                u.id AS instructor_id,
+                u.name AS instructor_name,
+
+                co.id AS course_id,
+                co.course AS course_name,
+
+                cat.id AS category_id,
+                cat.category AS category_name,
+
+                rc.id AS req_certificate_id,
+                rc.request_date
+
+            FROM req_class_student rcs
+
+            JOIN req_certificate rc 
+                ON rc.id = rcs.req_certificate_id
+
+            JOIN students s 
+                ON s.id = rcs.student_id
+
+            JOIN classes c 
+                ON c.id = rc.class_id
+
+            JOIN users u 
+                ON u.id = c.instructor_id
+
+            JOIN courses co 
+                ON co.id = c.course_id
+
+            JOIN categories cat 
+                ON cat.id = co.category_id
+
+            ORDER BY rc.id DESC
+        ";
+
+        $stmt = $conn->prepare($sql);
+        $stmt->execute();
+
+        $result = $stmt->get_result();
+        $data = [];
+
+        while ($row = $result->fetch_assoc()) {
+            $data[] = $row;
+        }
+
+        return self::response(true, "All requested certificates retrieved", $data);
+    }
 }
