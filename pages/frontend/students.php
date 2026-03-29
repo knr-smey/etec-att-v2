@@ -82,7 +82,7 @@ $class_id = isset($_GET['class_id']) ? intval($_GET['class_id']) : 0;
              <button class="btn btn-info text-light" id="btnGroup" data-bs-toggle="modal" data-bs-target="#groupmodal">
                 <i class="bi bi-people-fill me-1"></i> Group 
             </button>
-            <button class="btn btn-warning text-light" id="btnRequestCertificate" data-class-id="<?php echo $class_id; ?>" data-bs-toggle="modal" data-bs-target="#requestCertificateModal">
+            <button class="btn btn-warning text-light" id="btnRequestCertificate" data-class-id="<?php echo $class_id; ?>">
                 <i class="bi bi-file-earmark-text me-1"></i> Request Certficate
             </button>
             <button class="btn btn-success" id="saveAllScoresBtn">
@@ -555,78 +555,92 @@ $class_id = isset($_GET['class_id']) ? intval($_GET['class_id']) : 0;
         })
 
         $('#btnRequestCertificate').off('click').on('click', function() {
-
             const classId = $(this).data('class-id');
-            $.ajax({
-                url: `api.php?endpoint=get_student_for_certificate`,
-                method: 'POST',
-                dataType: 'json',
-                data: { class_id: classId },
-
-               success: function(res) {
-
-                    const $tbody = $('#certificate-pass-tbody');
-                    let html = '';
-
-                    const students = res.data.students;
-                    const reqCertificateId = res.data.req_certificate_id;
-                    if(!res.status || students.length === 0){
-                        $tbody.html(`
-                            <tr>
-                                <td colspan="4" class="text-center text-muted">No students found</td>
-                            </tr>
-                        `);
-                        return;
-                    }
-
-                    students.forEach((student, index) => {
-
-                        const blocked = student.attendance_status === 'blocked';
-                        const approved = student.is_approved == 1;
-
-                        html += `
-                            <tr class="${blocked ? 'table-danger' : ''}">
-                                <td>${index + 1}</td>
-
-                                <td>
-                                    <input 
-                                        type="text" 
-                                        class="form-control form-control-sm student-name" 
-                                        value="${student.full_name.toUpperCase()}" 
-                                        data-id="${student.id}"
-                                    >
-                                </td>
-
-                                <td>${student.gender}</td>
-
-                                <td>
-                                    ${blocked 
-                                        ? `<span class="badge bg-danger">Blocked</span>`
-                                        : approved
-                                            ? `<span class="badge bg-success">Approved</span>`
-                                            : `
-                                                <button class="btn btn-sm btn-primary btn-save-name" data-id="${student.id}">Save</button>
-                                                <button 
-                                                    class="btn btn-sm btn-success btn-approve-req"
-                                                    data-id="${student.id}"
-                                                    data-req-certificate-id="${reqCertificateId}">
-                                                    Approve
-                                                </button>
-                                            `
-                                    }
-                                </td>
-                            </tr>
-                        `;
-                    });
-                    $tbody.html(html);
-                },
-
-                error: function(err) {
-                    console.error("AJAX ERROR:", err);
+            // Always hide the modal before showing SweetAlert
+            const modalEl = document.getElementById('requestCertificateModal');
+            if (modalEl) {
+                var modalInstance = bootstrap.Modal.getInstance(modalEl);
+                if (modalInstance) {
+                    modalInstance.hide();
+                } else {
+                    // If not already initialized, forcibly hide
+                    $(modalEl).modal('hide');
                 }
-
+            }
+            // SweetAlert2 confirmation
+            Swal.fire({
+                title: 'Are you sure?',
+                text: 'Do you want to request certificates for this class?',
+                icon: 'question',
+                showCancelButton: true,
+                confirmButtonColor: '#3085d6',
+                cancelButtonColor: '#d33',
+                confirmButtonText: 'Yes, request!'
+            }).then((result) => {
+                if (result.isConfirmed) {
+                    // Open the modal programmatically
+                    var modal = new bootstrap.Modal(document.getElementById('requestCertificateModal'));
+                    modal.show();
+                    $.ajax({
+                        url: `api.php?endpoint=get_student_for_certificate`, 
+                        method: 'POST',
+                        dataType: 'json',
+                        data: { class_id: classId },
+                        success: function(res) {
+                            const $tbody = $('#certificate-pass-tbody');
+                            let html = '';
+                            const students = res.data.students;
+                            const reqCertificateId = res.data.req_certificate_id;
+                            if(!res.status || students.length === 0){
+                                $tbody.html(`
+                                    <tr>
+                                        <td colspan="4" class="text-center text-muted">No students found</td>
+                                    </tr>
+                                `);
+                                return;
+                            }
+                            students.forEach((student, index) => {
+                                const blocked = student.attendance_status === 'blocked';
+                                const approved = student.is_approved == 1;
+                                html += `
+                                    <tr class="${blocked ? 'table-danger' : ''}">
+                                        <td>${index + 1}</td>
+                                        <td>
+                                            <input 
+                                                type="text" 
+                                                class="form-control form-control-sm student-name" 
+                                                value="${student.full_name.toUpperCase()}" 
+                                                data-id="${student.id}"
+                                            >
+                                        </td>
+                                        <td>${student.gender}</td>
+                                        <td>
+                                            ${blocked 
+                                                ? `<span class="badge bg-danger">Blocked</span>`
+                                                : approved
+                                                    ? `<span class="badge bg-success">Approved</span>`
+                                                    : `
+                                                        <button class="btn btn-sm btn-primary btn-save-name" data-id="${student.id}">Save</button>
+                                                        <button 
+                                                            class="btn btn-sm btn-success btn-approve-req"
+                                                            data-id="${student.id}"
+                                                            data-req-certificate-id="${reqCertificateId}">
+                                                            Approve
+                                                        </button>
+                                                    `
+                                            }
+                                        </td>
+                                    </tr>
+                                `;
+                            });
+                            $tbody.html(html);
+                        },
+                        error: function(err) {
+                            console.error("AJAX ERROR:", err);
+                        }
+                    });
+                }
             });
-
         });
 
         $(document)
