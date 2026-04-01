@@ -220,17 +220,11 @@ class StudentController {
         $course_id = self::getCourseIdByClass($conn, $class_id);
         if (!$course_id) return;
 
-        // 3) if already approved in this cycle, enforce 2-absence phase
-        $inSecondPhase = self::hasApprovedAbsenceBlockInCurrentCycle(
-            $conn,
-            $tel,
-            $course_id,
-            $date,
-            $ruleStart
-        );
+        // 3) if already approved once, enforce 2-absence phase (across future months)
+        $inSecondPhase = self::hasApprovedAbsenceBlockByTelCourse($conn, $tel, $course_id);
 
         if ($inSecondPhase) {
-            self::enforceHardLockAfterApproval($conn, $tel, $course_id, $date, $ruleStart);
+            self::enforceHardLockAfterApproval($conn, $tel, $course_id, $date);
             return;
         }
 
@@ -369,35 +363,8 @@ class StudentController {
         return (int)$stmt->get_result()->fetch_assoc()['total'];
     }
 
-    // Every 2 manual permissions count as 1 absence-equivalent for lock logic.
-    private static function countPermissionAbsenceEquivalentInRange($conn, $tel, $course_id, $start, $end) {
-        $stmt = $conn->prepare("
-            SELECT COUNT(*) AS total
-            FROM student_records sr
-            JOIN students s ON sr.stu_id = s.id
-            JOIN classes c ON sr.class_id = c.id
-            WHERE s.tel = ?
-              AND c.course_id = ?
-              AND sr.permission = 1
-              AND sr.att_record_date BETWEEN ? AND ?
-              AND NOT EXISTS (
-                  SELECT 1
-                  FROM student_permissions sp
-                  WHERE sp.stu_id = sr.stu_id
-                    AND sp.class_id = sr.class_id
-                    AND sp.status = 'approved'
-                    AND DATE(sr.att_record_date) BETWEEN sp.start_date AND sp.end_date
-              )
-        ");
-        $stmt->bind_param("siss", $tel, $course_id, $start, $end);
-        $stmt->execute();
-
-        $permissionCount = (int)$stmt->get_result()->fetch_assoc()['total'];
-        return intdiv($permissionCount, 2);
-    }
-
-    // Get monthly permission limit from active rule for this class term.
-    private static function getMonthlyPermissionLimit($conn, $class_id) {
+    // Get permission rule config from active rule for this class term.
+    private static function getPermissionRuleConfig($conn, $class_id) {
         $term = self::getClassTermName($conn, $class_id);
         $rule = AttendanceRule::getRuleForClass($conn, 'permission', $term);
 
@@ -406,16 +373,32 @@ class StudentController {
         }
 
         $limit = (int)($rule['limit_count'] ?? 0);
-        return ($limit > 0) ? $limit : null;
+        if ($limit <= 0) {
+            return null;
+        }
+
+        $period = strtolower((string)($rule['period_type'] ?? 'month'));
+        if (!in_array($period, ['week', 'month'], true)) {
+            $period = 'month';
+        }
+
+        return [
+            'limit' => $limit,
+            'period' => $period
+        ];
     }
 
-    // 🚫 Block permission if monthly rule exceeded
+    // 🚫 Block permission if rule exceeded
     private static function checkPermissionRule($conn, $tel, $class_id, $date) {
-        $monthlyLimit = self::getMonthlyPermissionLimit($conn, $class_id);
-        if ($monthlyLimit === null) return true;
+        // Business rule: maximum 1 manual permission per week.
+        $weeklyUsed = self::countPermissionInPeriod($conn, $tel, $class_id, 'week', $date);
+        if ($weeklyUsed >= 1) return false;
 
-        $monthlyUsed = self::countPermissionInPeriod($conn, $tel, $class_id, 'month', $date);
-        return ($monthlyUsed < $monthlyLimit);
+        $config = self::getPermissionRuleConfig($conn, $class_id);
+        if ($config === null) return true;
+
+        $used = self::countPermissionInPeriod($conn, $tel, $class_id, $config['period'], $date);
+        return ($used < (int)$config['limit']);
     }
 
     private static function getClassTermName($conn, $class_id) {
@@ -433,24 +416,7 @@ class StudentController {
     }
 
     private static function countAbsenceInCurrentMonth($conn, $tel, $course_id, $date, $ruleStart) {
-        // Count absences in the current calendar month
-        // Respects rule activation date
-        
-        $monthStart = date('Y-m-01 00:00:00', strtotime($date));
-        $monthEnd   = date('Y-m-t 23:59:59', strtotime($date));
-        $latestUnlockAt = self::getLatestHardLockUnlockDateByTelCourse($conn, $tel, $course_id);
-
-        // If rule starts after month start, use rule start date
-        $ruleStartDt = date('Y-m-d 00:00:00', strtotime($ruleStart));
-        $start = ($ruleStartDt > $monthStart) ? $ruleStartDt : $monthStart;
-
-        if (!empty($latestUnlockAt)) {
-            if ($latestUnlockAt > $start) {
-                $start = $latestUnlockAt;
-            }
-        }
-
-        $end   = $monthEnd;
+        [$start, $end] = self::getAbsenceMonthlyCycleRange($date, $ruleStart);
 
         $stmt = $conn->prepare("
             SELECT COUNT(*) AS total
@@ -464,16 +430,16 @@ class StudentController {
         ");
         $stmt->bind_param("siss", $tel, $course_id, $start, $end);
         $stmt->execute();
-        $absenceCount = (int)$stmt->get_result()->fetch_assoc()['total'];
-        $permissionAbsenceEq = self::countPermissionAbsenceEquivalentInRange(
-            $conn,
-            $tel,
-            $course_id,
-            $start,
-            $end
-        );
+        return (int)$stmt->get_result()->fetch_assoc()['total'];
+    }
 
-        return $absenceCount + $permissionAbsenceEq;
+    private static function getAbsenceMonthlyCycleRange($date, $ruleStart) {
+        $monthStart = date('Y-m-01 00:00:00', strtotime($date));
+        $monthEnd   = date('Y-m-t 23:59:59', strtotime($date));
+        $ruleStartDt = date('Y-m-d 00:00:00', strtotime($ruleStart));
+        $cycleStart = ($ruleStartDt > $monthStart) ? $ruleStartDt : $monthStart;
+
+        return [$cycleStart, $monthEnd];
     }
 
     private static function countAbsenceInPeriodByTel($conn, $tel, $course_id, $period, $date, $term) {
@@ -546,15 +512,15 @@ class StudentController {
         try {
             
             // TIME RULE (15 minutes late => block)
-            // $timeRange = self::getClassTimeRange($conn, (int)$class_id);
-            // if (!$timeRange) {
-            //     self::response(false, "Class time not found");
-            // }
+            $timeRange = self::getClassTimeRange($conn, (int)$class_id);
+            if (!$timeRange) {
+                self::response(false, "Class time not found");
+            }
 
-            // [$ok, $msg] = self::canTrackAttendanceByTime($timeRange, 20);
-            // if (!$ok) {
-            //     self::response(false, $msg);
-            // }
+            [$ok, $msg] = self::canTrackAttendanceByTime($timeRange, 20);
+            if (!$ok) {
+                self::response(false, $msg);
+            }
 
 
             if (self::isAttendanceRecordedToday($conn, $class_id, $date)) {
@@ -608,8 +574,6 @@ class StudentController {
     public static function getAttendanceLockStatus($conn, $class_id, $date) {
 
         $result = [];
-        $monthlyPermissionLimit = self::getMonthlyPermissionLimit($conn, $class_id);
-
         // fetch all students in class
         $stmt = $conn->prepare("
             SELECT s.id AS stu_id, s.tel
@@ -652,24 +616,17 @@ class StudentController {
             }
 
             $inSecondPhase = $absenceRuleActive
-                ? self::hasApprovedAbsenceBlockInCurrentCycle(
-                    $conn,
-                    $tel,
-                    $course_id,
-                    $date,
-                    $absenceRule['start_date']
-                )
+                ? self::hasApprovedAbsenceBlockByTelCourse($conn, $tel, $course_id)
                 : false;
 
-            // after admin approves absence block in current cycle,
+            // after first admin-approved absence unlock,
             // allow only 2 additional absences before hard-lock.
             if ($inSecondPhase) {
-                $postApprovalAbsences = self::countAbsenceAfterLatestApprovalInCurrentMonth(
+                $postApprovalAbsences = self::countAbsenceAfterLatestApproval(
                     $conn,
                     $tel,
                     $course_id,
-                    $date,
-                    $absenceRule['start_date']
+                    $date
                 );
 
                 if ($postApprovalAbsences >= 2) {
@@ -749,7 +706,7 @@ class StudentController {
                 $result[$stu_id] = [
                     'status' => 'permission_locked',
                     'locked' => true,
-                    'reason' => "Permission limit exceeded (max {$monthlyPermissionLimit} time(s) per month)"
+                    'reason' => "Permission limit exceeded (max 1 time(s) per week)"
                 ];
                 continue;
             }
@@ -1050,8 +1007,6 @@ class StudentController {
             if (!$updateScoreStmt) throw new Exception("Prepare score update failed: " . $conn->error);
 
             $today = date('Y-m-d');
-            $monthlyPermissionLimit = self::getMonthlyPermissionLimit($conn, $class_id);
-
             foreach ($students as $stu) {
                 $stu_id = $stu['stu_id'] ?? null;
                 if (!$stu_id) continue;
@@ -1144,7 +1099,7 @@ class StudentController {
                             $permission = 0;
                             $absent = 1;
                             if ($reason === '') {
-                                $reason = "Permission limit exceeded ({$monthlyPermissionLimit}/month): counted as absence";
+                                $reason = "Permission limit exceeded (1/week): counted as absence";
                             }
                         }
                     }
@@ -1281,70 +1236,28 @@ class StudentController {
         return $row ? $row['latest_approved_at'] : null;
     }
 
-    private static function countAbsenceAfterLatestApprovalInCurrentMonth($conn, $tel, $course_id, $date, $ruleStart) {
+    private static function countAbsenceAfterLatestApproval($conn, $tel, $course_id, $date) {
         $approvedAt = self::getLatestApprovedAbsenceDateByTelCourse($conn, $tel, $course_id);
         if (!$approvedAt) return 0;
 
-        $monthStart = date('Y-m-01 00:00:00', strtotime($date));
-        $monthEnd   = date('Y-m-t 23:59:59', strtotime($date));
-        $latestUnlockAt = self::getLatestHardLockUnlockDateByTelCourse($conn, $tel, $course_id);
-
-        $ruleStartDt = date('Y-m-d 00:00:00', strtotime($ruleStart));
-        $cycleStart = ($ruleStartDt > $monthStart) ? $ruleStartDt : $monthStart;
-        if (!empty($latestUnlockAt)) {
-            if ($latestUnlockAt > $cycleStart) {
-                $cycleStart = $latestUnlockAt;
-            }
-        }
-
-        if ($approvedAt < $cycleStart) return 0;
-
-        $start = ($approvedAt > $cycleStart) ? $approvedAt : $cycleStart;
-        $end   = $monthEnd;
+        $start = $approvedAt;
+        $end   = date('Y-m-d 23:59:59', strtotime($date));
 
         $stmt = $conn->prepare("\n            SELECT COUNT(*) AS total\n            FROM student_records sr\n            JOIN students s ON sr.stu_id = s.id\n            JOIN classes c ON sr.class_id = c.id\n            WHERE s.tel = ?\n            AND c.course_id = ?\n            AND sr.absent = 1\n            AND sr.att_record_date BETWEEN ? AND ?\n        ");
         $stmt->bind_param("siss", $tel, $course_id, $start, $end);
         $stmt->execute();
-        $absenceCount = (int)$stmt->get_result()->fetch_assoc()['total'];
-        $permissionAbsenceEq = self::countPermissionAbsenceEquivalentInRange(
-            $conn,
-            $tel,
-            $course_id,
-            $start,
-            $end
-        );
-
-        return $absenceCount + $permissionAbsenceEq;
+        return (int)$stmt->get_result()->fetch_assoc()['total'];
     }
 
-    private static function hasApprovedAbsenceBlockInCurrentCycle($conn, $tel, $course_id, $date, $ruleStart) {
-        $monthStart = date('Y-m-01 00:00:00', strtotime($date));
-        $latestUnlockAt = self::getLatestHardLockUnlockDateByTelCourse($conn, $tel, $course_id);
-
-        $ruleStartDt = date('Y-m-d 00:00:00', strtotime($ruleStart));
-        $cycleStart = ($ruleStartDt > $monthStart) ? $ruleStartDt : $monthStart;
-        if (!empty($latestUnlockAt)) {
-            if ($latestUnlockAt > $cycleStart) {
-                $cycleStart = $latestUnlockAt;
-            }
-        }
-
-        $stmt = $conn->prepare("\n            SELECT 1\n            FROM student_attendance_block b\n            JOIN students s ON b.stu_id = s.id\n            JOIN classes  c ON b.class_id = c.id\n            WHERE b.block_type = 'absence'\n            AND b.is_approved = 1\n            AND COALESCE(b.approved_at, b.blocked_at) >= ?\n            AND s.tel = ?\n            AND c.course_id = ?\n            LIMIT 1\n        ");
-        $stmt->bind_param("ssi", $cycleStart, $tel, $course_id);
-        $stmt->execute();
-        return $stmt->get_result()->num_rows > 0;
-    }
-
-    private static function enforceHardLockAfterApproval($conn, $tel, $course_id, $date, $ruleStart) {
+    private static function enforceHardLockAfterApproval($conn, $tel, $course_id, $date) {
         if (self::hasHardLockByTelCourse($conn, $tel, $course_id)) return;
-        if (!self::hasApprovedAbsenceBlockInCurrentCycle($conn, $tel, $course_id, $date, $ruleStart)) return;
+        if (!self::hasApprovedAbsenceBlockByTelCourse($conn, $tel, $course_id)) return;
 
-        $postApprovalAbsences = self::countAbsenceAfterLatestApprovalInCurrentMonth(
+        $postApprovalAbsences = self::countAbsenceAfterLatestApproval(
             $conn,
             $tel,
             $course_id,
-            $date,
-            $ruleStart
+            $date
         );
 
         if ($postApprovalAbsences >= 2) {
@@ -1423,16 +1336,6 @@ class StudentController {
 
             $students = [];
             while ($row = $result->fetch_assoc()) {
-                $rawAbsent = (int)($row['absent'] ?? 0);
-                $permission = (int)($row['permission'] ?? 0);
-                $permAsAbsence = intdiv($permission, 2);
-
-                // Display effective absence in summary:
-                // every 2 permissions add 1 absence-equivalent.
-                $row['absent_raw'] = $rawAbsent;
-                $row['absent_from_permission'] = $permAsAbsence;
-                $row['absent'] = $rawAbsent + $permAsAbsence;
-
                 $students[] = $row;
             }
 

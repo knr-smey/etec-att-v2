@@ -1287,6 +1287,19 @@ $class_id = isset($_GET['class_id']) ? intval($_GET['class_id']) : 0;
         });
 
 
+        function setReasonRequirement($row, isPermission) {
+            const $reason = $row.find('.reason-input');
+            const $error = $row.find('.errorAlert');
+
+            if (isPermission) {
+                $reason.prop('disabled', false).prop('required', true);
+            } else {
+                $reason.prop('required', false).prop('disabled', true).val('');
+                $reason.removeClass('border-danger');
+                $error.addClass('d-none').text('');
+            }
+        }
+
         $(document).on('click', '.present-btn, .absent-btn, .permission-btn', function () {
             const $btn = $(this);
             const $row = $btn.closest('tr');
@@ -1302,13 +1315,7 @@ $class_id = isset($_GET['class_id']) ? intval($_GET['class_id']) : 0;
             // Activate clicked button
             $btn.addClass('active').prop('disabled', true);
 
-            const $reason = $row.find('.reason-input');
-
-            if ($btn.hasClass('permission-btn')) {
-                $reason.prop('disabled', false);
-            } else {
-                $reason.prop('disabled', true).val('');
-            }
+            setReasonRequirement($row, $btn.hasClass('permission-btn'));
         });
 
         $(document).on('keyup', '.reason-input', function(){
@@ -1345,6 +1352,10 @@ $class_id = isset($_GET['class_id']) ? intval($_GET['class_id']) : 0;
                 const reason       = $row.find('.reason-input').val()?.trim() || '';
 
                 if (isPermission && reason === '') {
+                    const $reasonInput = $row.find('.reason-input');
+                    const $error = $row.find('.errorAlert');
+                    $reasonInput.addClass('border-danger').prop('required', true);
+                    $error.removeClass('d-none').text('Reason is required for PM.');
                     valid = false;
                     return false;
                 }
