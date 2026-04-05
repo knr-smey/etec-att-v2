@@ -261,8 +261,8 @@ class StudentPermission
                         NULL              AS end_date,
                         CASE
                             WHEN sab.block_type = 'hard_lock'
-                                THEN 'Hard lock: exceeded 2 absences after admin approval'
-                            ELSE 'Exceeded absence limit'
+                                THEN 'Hard lock: exceeded the 2 extra absences after admin approval'
+                            ELSE 'Reached 3 absences this month'
                         END               AS reason,
                         CASE
                             WHEN sab.block_type = 'hard_lock' THEN 2
