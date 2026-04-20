@@ -76,29 +76,38 @@
             Type: <b id="modalReqType">-</b>
           </div>
 
-          <label class="form-label fw-semibold">Admin Comment <span class="text-danger">*</span></label>
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Request QR</label>
+            <div class="border rounded bg-light text-center p-3">
+              <div id="approveQrCode" class="d-inline-block"></div>
+              <div id="approveQrText" class="small text-muted mt-2"></div>
+            </div>
+          </div>
+
+          <!-- <label class="form-label fw-semibold">Admin Comment <span class="text-danger">*</span></label>
           <textarea
             id="adminComment"
             class="form-control"
             rows="3"
             placeholder="Write reason why you approve..."
-          ></textarea>
+          ></textarea> -->
 
           <div id="modalError" class="alert alert-danger py-2 mt-3 d-none"></div>
         </div>
 
-        <div class="modal-footer">
+        <!-- <div class="modal-footer">
           <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
           <button type="button" class="btn btn-success" id="btnModalApprove">
             Approve
           </button>
-        </div>
+        </div> -->
       </div>
     </div>
   </div>
 
 </section>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script>
 $(function () {
 
@@ -116,6 +125,41 @@ $(function () {
 
   // store selected approve info
   let selectedApprove = { id: null, type: null, btn: null, row: null };
+
+  function getAppBaseUrl() {
+    const currentPath = window.location.pathname || '/';
+    const basePath = currentPath.replace(/\/[^/]*$/, '');
+    return `${window.location.origin}${basePath}`;
+  }
+
+  function generateApproveQR(data) {
+    $('#approveQrCode').empty();
+
+    if (typeof QRCode === 'undefined') {
+      $('#approveQrText').text('QR library failed to load.');
+      return;
+    }
+
+    const qrUrl = new URL(`${getAppBaseUrl()}/permission.php`);
+    qrUrl.search = new URLSearchParams({
+      request_id: String(data.id ?? ''),
+      request_type: String(data.type ?? ''),
+      student_name: String(data.studentName ?? ''),
+      course: String(data.course ?? ''),
+      period: String(data.period ?? ''),
+      status: String(data.status ?? '')
+    }).toString();
+
+    $('#approveQrText').text(
+      'Scan to open permission rules page'
+    );
+
+    new QRCode(document.getElementById('approveQrCode'), {
+      text: qrUrl.toString(),
+      width: 180,
+      height: 180
+    });
+  }
 
   /* ===============================
      FETCH DATA
@@ -256,7 +300,15 @@ $(function () {
       const perStu = parseInt(p.permission_approved_by_student, 10) || 0;
 
       return `
-        <tr data-id="${escapeHtml(p.request_id)}" data-type="${escapeHtml(p.request_type)}">
+        <tr
+          data-id="${escapeHtml(p.request_id)}"
+          data-type="${escapeHtml(p.request_type)}"
+          data-student-name="${escapeHtml(p.student_name)}"
+          data-course="${escapeHtml(p.course)}"
+          data-start-date="${escapeHtml(p.start_date || '')}"
+          data-end-date="${escapeHtml(p.end_date || '')}"
+          data-status="${escapeHtml(p.status || '')}"
+        >
 
           <td>
             <div class="d-flex flex-column">
@@ -436,12 +488,27 @@ $(function () {
       const type = btn.data('type');
 
       const row = btn.closest('tr');
-      const studentName = row.find('strong').first().text().trim() || '-';
+      const studentName = row.data('student-name') || row.find('strong').first().text().trim() || '-';
+      const course = row.data('course') || '-';
+      const startDate = row.data('start-date') || '';
+      const endDate = row.data('end-date') || '';
+      const period = type === 'absence'
+        ? 'Absence block request'
+        : [startDate, endDate].filter(Boolean).join(' -> ') || '-';
+      const statusText = row.find('.status-pill').text().trim() || 'PENDING';
 
       selectedApprove = { id, type, btn, row };
 
       $('#modalStudentName').text(studentName);
       $('#modalReqType').text(type === 'absence' ? 'absence block' : 'permission');
+      generateApproveQR({
+        id,
+        type,
+        studentName,
+        course,
+        period,
+        status: statusText
+      });
       $('#adminComment').val('');
       $('#modalError').addClass('d-none').text('');
 
@@ -526,6 +593,8 @@ $(function () {
       selectedApprove = { id: null, type: null, btn: null, row: null };
       $('#modalError').addClass('d-none').text('');
       $('#adminComment').val('');
+      $('#approveQrCode').empty();
+      $('#approveQrText').empty();
       $('#btnModalApprove').prop('disabled', false).text('Approve');
     });
   }

@@ -1002,10 +1002,7 @@ switch ($endpoint) {
         break;
         
     case 'approve_permission':
-        StudentPermission::approvePermission(
-            $conn,
-            $_POST['permission_id'] ?? null
-        );
+        StudentPermission::approvePermission($conn);
     break;
         
     case 'getTodayPermissions':
