@@ -25,6 +25,7 @@
                         <th>Instructor</th>
                         <th>Course</th>
                         <th>Category</th>
+                        <th>Network Basic IT</th>
                         <th>Date</th>
                     </tr>
                 </thead>
@@ -57,7 +58,7 @@ $(document).ready(function () {
         tbody.empty();
 
         if (data.length === 0) {
-            tbody.html("<tr><td colspan='6'>No data</td></tr>");
+            tbody.html("<tr><td colspan='7'>No data</td></tr>");
             return;
         }
 
@@ -78,7 +79,7 @@ $(document).ready(function () {
             // 🔥 Instructor header row with Done button
             tbody.append(`
                 <tr class="table-secondary">
-                    <td colspan="6">
+                    <td colspan="7">
                         <div class="d-flex justify-content-between align-items-center">
                             <span>Instructor: <b>${instructor}</b></span>
                             <button class="btn btn-success btn-sm ms-2 done-instructor-btn">Done</button>
@@ -96,6 +97,7 @@ $(document).ready(function () {
                         <td></td>
                         <td>${item.course_name}</td>
                         <td>${item.category_name}</td>
+                        <td>${parseInt(item.class_network_for_basic_it, 10) === 1 ? 'Yes' : 'No'}</td>
                         <td>${formatDate(item.request_date)}</td>
                     </tr>
                 `;

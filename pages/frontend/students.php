@@ -318,6 +318,16 @@ $class_id = isset($_GET['class_id']) ? intval($_GET['class_id']) : 0;
                 </div>
                 <div class="modal-body">
                     <form action="">
+                        <div id="network-basic-it-wrapper" class="form-check mb-3 border-bottom pb-2">
+                            <input
+                                type="checkbox"
+                                class="form-check-input border-primary"
+                                id="network-basic-it-global-checkbox"
+                            >
+                            <label class="form-check-label" for="network-basic-it-global-checkbox">
+                                This class is Network ?
+                            </label>
+                        </div>
                         <div class="table-responsive">
                             <table class="table table-bordered align-middle mb-0">
                                 <thead class="table-light">
@@ -325,7 +335,7 @@ $class_id = isset($_GET['class_id']) ? intval($_GET['class_id']) : 0;
                                         <th>N<sup>o</sup></th>
                                         <th>Student Name</th>
                                         <th>Gender</th>
-                                        <th>Action [EDIT | APPROVE]</th> 
+                                        <th>Action</th> 
                                     </tr>
                                 </thead>
                                 <tbody id="certificate-pass-tbody">
@@ -455,6 +465,146 @@ $class_id = isset($_GET['class_id']) ? intval($_GET['class_id']) : 0;
         
         const class_id = $("#class_id").val();
         const stuArr = []
+        let isBasicItNetworkCourse = false;
+        let certificateRequestState = {
+            reqCertificateId: 0,
+            classNetworkForBasicIt: 0,
+            students: []
+        };
+
+        function setRequestCertificateButtonState(requested) {
+            const $btn = $('#btnRequestCertificate');
+
+            if (requested) {
+                $btn.html('<i class="bi bi-check2-circle me-1"></i> Requested');
+                return;
+            }
+
+            $btn.html('<i class="bi bi-file-earmark-text me-1"></i> Request Certficate');
+        }
+
+        function syncRequestCertificateStatus(classId) {
+            $.ajax({
+                url: `api.php?endpoint=get_request_certificate_status&class_id=${classId}`,
+                type: 'GET',
+                dataType: 'json',
+                success: function(res) {
+                    if (!res.status) {
+                        return;
+                    }
+
+                    setRequestCertificateButtonState(res.data.requested === true);
+                },
+                error: function() {
+                    console.error('Failed to sync request certificate status');
+                }
+            });
+        }
+
+        function shouldShowNetworkBasicIt(courseName) {
+            const normalizedCourseName = (courseName || '').trim();
+            return normalizedCourseName === 'Basic IT (C++ and Network)'
+                || normalizedCourseName === 'Basic IT (C++ & Network)';
+        }
+
+        function bindNetworkBasicItCheckbox(value) {
+            const checked = parseInt(value, 10) === 1;
+            $('#network-basic-it-global-checkbox').prop('checked', checked);
+            certificateRequestState.classNetworkForBasicIt = checked ? 1 : 0;
+        }
+
+        function renderCertificateRows() {
+            const $tbody = $('#certificate-pass-tbody');
+            const students = certificateRequestState.students || [];
+
+            if (students.length === 0) {
+                $tbody.html(`
+                    <tr>
+                        <td colspan="4" class="text-center text-muted">No students found</td>
+                    </tr>
+                `);
+                return;
+            }
+
+            let html = '';
+            students.forEach((student, index) => {
+                const blocked = student.attendance_status === 'blocked';
+                const approved = parseInt(student.is_approved, 10) === 1;
+
+                html += `
+                    <tr class="${blocked ? 'table-danger' : ''}" data-student-id="${student.id}">
+                        <td>${index + 1}</td>
+                        <td>
+                            <input 
+                                type="text" 
+                                class="form-control form-control-sm student-name" 
+                                value="${student.full_name.toUpperCase()}" 
+                                data-id="${student.id}"
+                            >
+                        </td>
+                        <td>${student.gender}</td>
+                        <td>
+                            ${blocked 
+                                ? `<span class="badge bg-danger">Blocked</span>`
+                                : `
+                                    <button class="btn btn-sm btn-primary btn-save-name" data-id="${student.id}">Save</button>
+                                    <button 
+                                        class="btn btn-sm ${approved ? 'btn-secondary' : 'btn-success'} btn-approve-req"
+                                        data-id="${student.id}"
+                                        data-req-certificate-id="${certificateRequestState.reqCertificateId}"
+                                        ${approved ? 'disabled' : ''}>
+                                        ${approved ? 'Approved' : 'Approve'}
+                                    </button>
+                                `
+                            }
+                        </td>
+                    </tr>
+                `;
+            });
+
+            $tbody.html(html);
+        }
+
+        function openRequestCertificateModal(classId) {
+            var modal = new bootstrap.Modal(document.getElementById('requestCertificateModal'));
+            modal.show();
+
+            bindNetworkBasicItCheckbox(0);
+
+            $.ajax({
+                url: `api.php?endpoint=get_student_for_certificate`,
+                method: 'POST',
+                dataType: 'json',
+                data: { class_id: classId },
+                success: function(res) {
+                    if (!res.status) {
+                        $('#certificate-pass-tbody').html(`
+                            <tr>
+                                <td colspan="4" class="text-center text-muted">No students found</td>
+                            </tr>
+                        `);
+                        return;
+                    }
+
+                    certificateRequestState = {
+                        reqCertificateId: res.data.req_certificate_id,
+                        classNetworkForBasicIt: parseInt(res.data.class_network_for_basic_it, 10) === 1 ? 1 : 0,
+                        students: (res.data.students || []).map(student => ({
+                            ...student,
+                            is_approved: parseInt(student.is_approved, 10) === 1 ? 1 : 0,
+                            class_network_for_basic_it: parseInt(student.class_network_for_basic_it, 10) === 1 ? 1 : 0
+                        }))
+                    };
+
+                    bindNetworkBasicItCheckbox(certificateRequestState.classNetworkForBasicIt);
+
+                    renderCertificateRows();
+                },
+                error: function(err) {
+                    console.error("AJAX ERROR:", err);
+                }
+            });
+        }
 
         function loadClassDetails(classId) {
             if (!classId || classId <= 0) return;
@@ -471,6 +621,7 @@ $class_id = isset($_GET['class_id']) ? intval($_GET['class_id']) : 0;
                     }
 
                     const classData = res.data;
+                    isBasicItNetworkCourse = shouldShowNetworkBasicIt(classData.course_name);
 
                     // Render actual HTML
                     const html = `
@@ -556,89 +707,49 @@ $class_id = isset($_GET['class_id']) ? intval($_GET['class_id']) : 0;
 
         $('#btnRequestCertificate').off('click').on('click', function() {
             const classId = $(this).data('class-id');
-            // Always hide the modal before showing SweetAlert
             const modalEl = document.getElementById('requestCertificateModal');
-            if (modalEl) {
-                var modalInstance = bootstrap.Modal.getInstance(modalEl);
-                if (modalInstance) {
-                    modalInstance.hide();
-                } else {
-                    // If not already initialized, forcibly hide
-                    $(modalEl).modal('hide');
-                }
-            }
-            // SweetAlert2 confirmation
-            Swal.fire({
-                title: 'Are you sure?',
-                text: 'Do you want to request certificates for this class?',
-                icon: 'question',
-                showCancelButton: true,
-                confirmButtonColor: '#3085d6',
-                cancelButtonColor: '#d33',
-                confirmButtonText: 'Yes, request!'
-            }).then((result) => {
-                if (result.isConfirmed) {
-                    // Open the modal programmatically
-                    var modal = new bootstrap.Modal(document.getElementById('requestCertificateModal'));
-                    modal.show();
-                    $.ajax({
-                        url: `api.php?endpoint=get_student_for_certificate`, 
-                        method: 'POST',
-                        dataType: 'json',
-                        data: { class_id: classId },
-                        success: function(res) {
-                            const $tbody = $('#certificate-pass-tbody');
-                            let html = '';
-                            const students = res.data.students;
-                            const reqCertificateId = res.data.req_certificate_id;
-                            if(!res.status || students.length === 0){
-                                $tbody.html(`
-                                    <tr>
-                                        <td colspan="4" class="text-center text-muted">No students found</td>
-                                    </tr>
-                                `);
-                                return;
-                            }
-                            students.forEach((student, index) => {
-                                const blocked = student.attendance_status === 'blocked';
-                                const approved = student.is_approved == 1;
-                                html += `
-                                    <tr class="${blocked ? 'table-danger' : ''}">
-                                        <td>${index + 1}</td>
-                                        <td>
-                                            <input 
-                                                type="text" 
-                                                class="form-control form-control-sm student-name" 
-                                                value="${student.full_name.toUpperCase()}" 
-                                                data-id="${student.id}"
-                                            >
-                                        </td>
-                                        <td>${student.gender}</td>
-                                        <td>
-                                            ${blocked 
-                                                ? `<span class="badge bg-danger">Blocked</span>`
-                                                : approved
-                                                    ? `<span class="badge bg-success">Approved</span>`
-                                                    : `
-                                                        <button class="btn btn-sm btn-primary btn-save-name" data-id="${student.id}">Save</button>
-                                                        <button 
-                                                            class="btn btn-sm btn-success btn-approve-req"
-                                                            data-id="${student.id}"
-                                                            data-req-certificate-id="${reqCertificateId}">
-                                                            Approve
-                                                        </button>
-                                                    `
-                                            }
-                                        </td>
-                                    </tr>
-                                `;
-                            });
-                            $tbody.html(html);
-                        },
-                        error: function(err) {
-                            console.error("AJAX ERROR:", err);
+
+            $.ajax({
+                url: `api.php?endpoint=get_request_certificate_status&class_id=${classId}`,
+                type: 'GET',
+                dataType: 'json',
+                success: function(statusRes) {
+                    if (!statusRes.status) {
+                        alert(statusRes.message || 'Failed to check request status');
+                        return;
+                    }
+
+                    if (statusRes.data.requested === true) {
+                        setRequestCertificateButtonState(true);
+                        openRequestCertificateModal(classId);
+                        return;
+                    }
+
+                    if (modalEl) {
+                        var modalInstance = bootstrap.Modal.getInstance(modalEl);
+                        if (modalInstance) {
+                            modalInstance.hide();
+                        } else {
+                            $(modalEl).modal('hide');
+                        }
+                    }
+
+                    Swal.fire({
+                        title: 'Are you sure?',
+                        text: 'Do you want to request certificates for this class?',
+                        icon: 'question',
+                        showCancelButton: true,
+                        confirmButtonColor: '#3085d6',
+                        cancelButtonColor: '#d33',
+                        confirmButtonText: 'Yes, request!'
+                    }).then((result) => {
+                        if (result.isConfirmed) {
+                            openRequestCertificateModal(classId);
                         }
                     });
+                },
+                error: function() {
+                    alert('Failed to check request status');
                 }
             });
         });
@@ -713,7 +824,12 @@ $class_id = isset($_GET['class_id']) ? intval($_GET['class_id']) : 0;
             const $btn = $(this);
 
             const studentId = $btn.data('id');
-            const reqCertificateId  = $btn.data('req-certificate-id');
+            const reqCertificateId  = certificateRequestState.reqCertificateId;
+            const classNetworkForBasicIt = $('#network-basic-it-global-checkbox').is(':checked') ? 1 : 0;
+
+            if ($btn.prop("disabled")) {
+                return;
+            }
 
             $btn.prop("disabled", true).text("Approving...");
 
@@ -723,17 +839,27 @@ $class_id = isset($_GET['class_id']) ? intval($_GET['class_id']) : 0;
                 dataType: "json",
                 data: {
                     student_id: studentId,
-                    req_certificate_id: reqCertificateId
+                    req_certificate_id: reqCertificateId,
+                    class_network_for_basic_it: classNetworkForBasicIt
                 },
 
                 success: function(res){
-                    // console.log(res);
                     if(res.status){
+                        certificateRequestState.classNetworkForBasicIt = classNetworkForBasicIt;
+                        certificateRequestState.students = certificateRequestState.students.map((student) => {
+                            if (parseInt(student.id, 10) === parseInt(studentId, 10)) {
+                                return {
+                                    ...student,
+                                    is_approved: 1,
+                                    class_network_for_basic_it: classNetworkForBasicIt
+                                };
+                            }
 
-                        $btn
-                        .removeClass("btn-success")
-                        .addClass("btn-secondary")
-                        .text("Approved");
+                            return student;
+                        });
+
+                        setRequestCertificateButtonState(true);
+                        renderCertificateRows();
 
                     }else{
 
@@ -746,6 +872,10 @@ $class_id = isset($_GET['class_id']) ? intval($_GET['class_id']) : 0;
 
             });
 
+        });
+
+        $(document).on('change', '#network-basic-it-global-checkbox', function() {
+            certificateRequestState.classNetworkForBasicIt = $(this).is(':checked') ? 1 : 0;
         });
         function toggleSpinner(button, show) {
             const $btn = $(button);
@@ -1918,6 +2048,7 @@ $class_id = isset($_GET['class_id']) ? intval($_GET['class_id']) : 0;
 
 
         loadClassDetails(class_id);
+        syncRequestCertificateStatus(class_id);
         loadStudents(class_id);
 
     });

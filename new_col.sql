@@ -23,6 +23,7 @@ CREATE TABLE req_certificate (
     class_id INT NOT NULL,
     user_id INT NOT NULL,
     request_date DATETIME NOT NULL,
+    class_network_for_basic_it TINYINT(1) NOT NULL DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 
@@ -34,3 +35,15 @@ RENAME TABLE end_class_students TO req_class_student;
 
 ALTER TABLE req_class_student 
 CHANGE end_class_id req_certificate_id INT NOT NULL;
+
+ALTER TABLE req_certificate
+ADD COLUMN class_network_for_basic_it TINYINT(1) NOT NULL DEFAULT 0;
+
+UPDATE req_certificate rc
+INNER JOIN req_class_student rcs
+    ON rcs.req_certificate_id = rc.id
+SET rc.class_network_for_basic_it = rcs.class_network_for_basic_it
+WHERE rcs.class_network_for_basic_it = 1;
+
+ALTER TABLE req_class_student
+DROP COLUMN class_network_for_basic_it;

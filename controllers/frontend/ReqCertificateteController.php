@@ -1,6 +1,5 @@
 <?php
 
-
 class ReqCertificateteController{
 
     private static function response($status, $message = "", $data = []) {
@@ -14,7 +13,6 @@ class ReqCertificateteController{
 
     public static function getStudentRequests($conn, $classid, $user_id)
     {
-        // 1️⃣ Check if request already exists
         $checkSql = "SELECT id FROM req_certificate WHERE class_id = ? AND user_id = ? LIMIT 1";
         $checkStmt = $conn->prepare($checkSql);
         $checkStmt->bind_param("ii", $classid, $user_id);
@@ -22,13 +20,10 @@ class ReqCertificateteController{
         $checkResult = $checkStmt->get_result();
 
         if ($row = $checkResult->fetch_assoc()) {
-            // already exists
             $req_certificate_id = $row['id'];
         } else {
-
-            // 2️⃣ Insert new request
-            $insertSql = "INSERT INTO req_certificate (class_id, user_id, request_date)
-                        VALUES (?, ?, NOW())";
+            $insertSql = "INSERT INTO req_certificate (class_id, user_id, request_date, class_network_for_basic_it)
+                        VALUES (?, ?, NOW(), 0)";
 
             $insertStmt = $conn->prepare($insertSql);
             $insertStmt->bind_param("ii", $classid, $user_id);
@@ -37,7 +32,6 @@ class ReqCertificateteController{
             $req_certificate_id = $conn->insert_id;
         }
 
-        // 3️⃣ Fetch students
         $sql = "
             SELECT 
                 s.id,
@@ -45,7 +39,8 @@ class ReqCertificateteController{
                 s.gender,
                 s.tel,
                 s.class_id,
-
+                CASE WHEN rcs.id IS NOT NULL THEN 1 ELSE 0 END AS is_approved,
+                COALESCE(rc.class_network_for_basic_it, 0) AS class_network_for_basic_it,
                 CASE 
                     WHEN EXISTS (
                         SELECT 1
@@ -57,25 +52,33 @@ class ReqCertificateteController{
                     THEN 'blocked'
                     ELSE 'ok'
                 END AS attendance_status
-
             FROM students s
+            INNER JOIN req_certificate rc
+                ON rc.id = ?
+            LEFT JOIN req_class_student rcs
+                ON rcs.req_certificate_id = rc.id
+                AND rcs.student_id = s.id
             WHERE s.class_id = ?
         ";
 
         $stmt = $conn->prepare($sql);
-        $stmt->bind_param("i", $classid);
+        $stmt->bind_param("ii", $req_certificate_id, $classid);
         $stmt->execute();
 
         $result = $stmt->get_result();
         $students = [];
+        $class_network_for_basic_it = 0;
 
         while ($row = $result->fetch_assoc()) {
+            if ((int)$row['class_network_for_basic_it'] === 1) {
+                $class_network_for_basic_it = 1;
+            }
             $students[] = $row;
         }
 
-        // 4️⃣ Response
         return self::response(true, "Student requests retrieved successfully", [
             "req_certificate_id" => $req_certificate_id,
+            "class_network_for_basic_it" => $class_network_for_basic_it,
             "students" => $students
         ]);
     }
@@ -96,12 +99,49 @@ class ReqCertificateteController{
         }
     }
 
-    public static function approveStudentRequest($conn, $req_certificate_id, $student_id)
+    public static function getRequestStatus($conn, $classid)
     {
-        // check if student already exists
-        $checkSql = "SELECT id 
-                    FROM req_class_student
-                    WHERE req_certificate_id = ? AND student_id = ?
+        $sql = "
+            SELECT COUNT(*) AS total
+            FROM req_class_student rcs
+            INNER JOIN req_certificate rc
+                ON rc.id = rcs.req_certificate_id
+            WHERE rc.class_id = ?
+        ";
+
+        $stmt = $conn->prepare($sql);
+        $stmt->bind_param("i", $classid);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        $row = $result->fetch_assoc();
+        $total = (int)($row['total'] ?? 0);
+
+        return self::response(true, "Request status retrieved", [
+            "requested" => $total > 0,
+            "count" => $total
+        ]);
+    }
+
+    public static function approveStudentRequest($conn, $req_certificate_id, $student_id, $class_network_for_basic_it = 0)
+    {
+        $updateRequestSql = "UPDATE req_certificate
+                            SET class_network_for_basic_it = ?
+                            WHERE id = ?";
+        $updateRequestStmt = $conn->prepare($updateRequestSql);
+        $updateRequestStmt->bind_param("ii", $class_network_for_basic_it, $req_certificate_id);
+        $updateRequestStmt->execute();
+
+        $checkSql = "SELECT rcs.id 
+                    FROM req_class_student rcs
+                    INNER JOIN req_certificate rc
+                        ON rc.id = rcs.req_certificate_id
+                    WHERE rc.class_id = (
+                        SELECT class_id
+                        FROM req_certificate
+                        WHERE id = ?
+                        LIMIT 1
+                    )
+                    AND rcs.student_id = ?
                     LIMIT 1";
 
         $checkStmt = $conn->prepare($checkSql);
@@ -113,8 +153,11 @@ class ReqCertificateteController{
             return self::response(false, "Student already approved");
         }
 
-        // insert student
-        $sql = "INSERT INTO req_class_student (req_certificate_id, student_id, discounts)
+        $sql = "INSERT INTO req_class_student (
+                    req_certificate_id,
+                    student_id,
+                    discounts
+                )
                 VALUES (?, ?, 0)";
 
         $stmt = $conn->prepare($sql);
@@ -152,7 +195,8 @@ class ReqCertificateteController{
                 cat.category AS category_name,
 
                 rc.id AS req_certificate_id,
-                rc.request_date
+                rc.request_date,
+                rc.class_network_for_basic_it
 
             FROM req_class_student rcs
 

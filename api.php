@@ -1258,6 +1258,20 @@ switch ($endpoint) {
 
     break;
 
+    case "get_request_certificate_status":
+
+        if($method !== 'GET') response(false, "Method not allowed");
+
+        $class_id = intval($_GET['class_id'] ?? 0);
+
+        if(!$class_id){
+            response(false, "Class ID is required");
+        }
+
+        ReqCertificateteController::getRequestStatus($conn, $class_id);
+
+    break;
+
     case "update_student_name":
         $class_id = $_POST['class_id'] ?? 0;
         ReqCertificateteController::saveUpdatedName($conn, $_POST['student_id'] ?? 0, $_POST['full_name'] ?? '');
@@ -1269,12 +1283,18 @@ switch ($endpoint) {
 
         $req_certificate_id = intval($_POST['req_certificate_id'] ?? 0);
         $student_id         = intval($_POST['student_id'] ?? 0);
+        $class_network_for_basic_it = intval($_POST['class_network_for_basic_it'] ?? 0);
 
         if(!$req_certificate_id || !$student_id){
             response(false, "Invalid parameters");
         }
 
-        ReqCertificateteController::approveStudentRequest($conn, $req_certificate_id, $student_id);
+        ReqCertificateteController::approveStudentRequest(
+            $conn,
+            $req_certificate_id,
+            $student_id,
+            $class_network_for_basic_it
+        );
 
     break;
 
