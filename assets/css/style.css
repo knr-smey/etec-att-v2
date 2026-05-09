@@ -2,43 +2,52 @@
 @import url('https://fonts.googleapis.com/css2?family=Metal&display=swap');
 
 
-:root{
+:root {
     --main-color: #2C2B7C;
 }
 
-.font-custom{
+@font-face {
+    font-family: 'Khmer UIb';
+    src: url('../fonts/KhmerUIb.ttf') format('truetype');
+    font-weight: normal;
+    font-style: normal;
+}
+
+.font-custom {
     font-family: "Fira Sans", sans-serif !important;
 }
 
-.bg-etec-color{
+.bg-etec-color {
     background-color: var(--main-color);
 }
 
-.text-etec-color{
+.text-etec-color {
     color: var(--main-color);
 }
 
-.arrow-icon{
+.arrow-icon {
     transition: transform 0.3s ease;
 }
+
 .rotate {
-    transform: rotate(90deg); /* right -> down */
+    transform: rotate(90deg);
+    /* right -> down */
 }
 
-::-webkit-scrollbar{
+::-webkit-scrollbar {
     width: 0px !important;
     background: transparent;
 }
 
 .text-limit {
-   overflow: hidden;
-   display: -webkit-box;
-   -webkit-line-clamp: 1; /* number of lines to show */
-           line-clamp: 1; 
-   -webkit-box-orient: vertical;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 1;
+    /* number of lines to show */
+    line-clamp: 1;
+    -webkit-box-orient: vertical;
 }
 
-.kh-font{
+.kh-font {
     font-family: "Metal", serif !important;
 }
-

@@ -40,7 +40,7 @@
     </small>
   </div>
 
-  <div class="table-responsive">
+  <div class="table-responsive permission-table-wrap">
     <table class="table table-hover align-middle permission-table">
       <thead class="table-light">
         <tr>
@@ -140,18 +140,22 @@ $(function () {
       return;
     }
 
+    const requestId = String(data.id ?? '').trim();
+    const requestType = String(data.type ?? '').trim();
+
+    if (!requestId || !requestType) {
+      $('#approveQrText').text('Missing request data for QR code.');
+      return;
+    }
+
     const qrUrl = new URL(`${getAppBaseUrl()}/permission.php`);
     qrUrl.search = new URLSearchParams({
-      request_id: String(data.id ?? ''),
-      request_type: String(data.type ?? ''),
-      student_name: String(data.studentName ?? ''),
-      course: String(data.course ?? ''),
-      period: String(data.period ?? ''),
-      status: String(data.status ?? '')
+      request_id: requestId,
+      request_type: requestType
     }).toString();
 
     $('#approveQrText').text(
-      'Scan to open permission rules page'
+      `Scan to open permission request #${requestId}`
     );
 
     new QRCode(document.getElementById('approveQrCode'), {
@@ -372,9 +376,9 @@ $(function () {
 
     const pageItems = buildPageItems(totalPages, currentPage);
 
-    let html = `
+      let html = `
       <li class="page-item ${currentPage === 1 ? 'disabled' : ''}">
-        <a class="page-link" href="#" data-page="${currentPage - 1}">Prev</a>
+        <button type="button" class="page-link" data-page="${currentPage - 1}">Prev</button>
       </li>
     `;
 
@@ -390,14 +394,14 @@ $(function () {
 
       html += `
         <li class="page-item ${item === currentPage ? 'active' : ''}">
-          <a class="page-link" href="#" data-page="${item}">${item}</a>
+          <button type="button" class="page-link" data-page="${item}">${item}</button>
         </li>
       `;
     }
 
     html += `
       <li class="page-item ${currentPage === totalPages ? 'disabled' : ''}">
-        <a class="page-link" href="#" data-page="${currentPage + 1}">Next</a>
+        <button type="button" class="page-link" data-page="${currentPage + 1}">Next</button>
       </li>
     `;
 
@@ -433,9 +437,16 @@ $(function () {
   }
 
   $(document)
-    .off('click.paginate', '#pagination a')
-    .on('click.paginate', '#pagination a', function (e) {
+    .off('click.paginate', '#pagination .page-link')
+    .on('click.paginate', '#pagination .page-link', function (e) {
       e.preventDefault();
+      e.stopPropagation();
+
+      const item = $(this).closest('.page-item');
+      if (item.hasClass('disabled') || item.hasClass('active')) {
+        return;
+      }
+
       const page = +$(this).data('page');
       const totalPages = Math.ceil(filteredData.length / perPage);
 
@@ -632,6 +643,23 @@ $(function () {
   vertical-align: middle;
 }
 
+.permission-table-wrap {
+  position: relative;
+  z-index: 1;
+  overflow-x: auto;
+}
+
+.permission-table-wrap .btnApprove,
+#btnClearSearch,
+#searchName,
+#pagination,
+#pagination .page-item,
+#pagination .page-link {
+  position: relative;
+  z-index: 3;
+  pointer-events: auto;
+}
+
 /* Date */
 .date-pill {
   display: inline-flex;
@@ -664,7 +692,28 @@ $(function () {
 }
 
 #pagination .page-link {
+  display: block;
   min-width: 34px;
   text-align: center;
+  cursor: pointer;
+}
+
+#pagination button.page-link {
+  border: 1px solid var(--bs-pagination-border-color, #dee2e6);
+  background: var(--bs-pagination-bg, #fff);
+  color: var(--bs-pagination-color, #0d6efd);
+}
+
+#pagination .active .page-link {
+  color: var(--bs-pagination-active-color, #fff);
+  background: var(--bs-pagination-active-bg, #0d6efd);
+  border-color: var(--bs-pagination-active-border-color, #0d6efd);
+  pointer-events: none;
+}
+
+#pagination .disabled .page-link {
+  color: var(--bs-pagination-disabled-color, #6c757d);
+  background: var(--bs-pagination-disabled-bg, #fff);
+  border-color: var(--bs-pagination-disabled-border-color, #dee2e6);
 }
 </style>

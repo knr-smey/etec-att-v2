@@ -54,6 +54,77 @@ function getCurrentRequestStatus($conn, $requestId, $requestType)
     return $row['status'] ?? null;
 }
 
+function getRequestDetails($conn, $requestId, $requestType)
+{
+    if ($requestId === '' || $requestType === '') {
+        return null;
+    }
+
+    if ($requestType === 'absence') {
+        $stmt = $conn->prepare("
+            SELECT
+                sab.id,
+                COALESCE(s.full_name, CONCAT('Student #', sab.stu_id)) AS student_name,
+                COALESCE(c.course, '-') AS course_name,
+                CASE
+                    WHEN sab.block_type = 'hard_lock' THEN 'Absence block request'
+                    WHEN sab.block_type IS NULL OR sab.block_type = '' THEN 'Absence request'
+                    ELSE sab.block_type
+                END AS period_text
+            FROM student_attendance_block sab
+            LEFT JOIN students s ON s.id = sab.stu_id
+            LEFT JOIN classes cl ON cl.id = sab.class_id
+            LEFT JOIN courses c ON c.id = cl.course_id
+            WHERE sab.id = ?
+            LIMIT 1
+        ");
+        $stmt->bind_param("i", $requestId);
+        $stmt->execute();
+        $row = $stmt->get_result()->fetch_assoc();
+
+        return $row ?: null;
+    }
+
+    $stmt = $conn->prepare("
+        SELECT
+            sp.id,
+            COALESCE(s.full_name, CONCAT('Student #', sp.stu_id)) AS student_name,
+            COALESCE(c.course, '-') AS course_name,
+            CONCAT(
+                COALESCE(DATE_FORMAT(sp.start_date, '%d/%m/%Y'), '-'),
+                ' -> ',
+                COALESCE(DATE_FORMAT(sp.end_date, '%d/%m/%Y'), '-')
+            ) AS period_text
+        FROM student_permissions sp
+        LEFT JOIN students s ON s.id = sp.stu_id
+        LEFT JOIN classes cl ON cl.id = sp.class_id
+        LEFT JOIN courses c ON c.id = cl.course_id
+        WHERE sp.id = ?
+        LIMIT 1
+    ");
+    $stmt->bind_param("i", $requestId);
+    $stmt->execute();
+    $row = $stmt->get_result()->fetch_assoc();
+
+    return $row ?: null;
+}
+
+$requestDetails = getRequestDetails($conn, $requestId, $requestType);
+
+if ($requestDetails) {
+    if ($studentName === '') {
+        $studentName = trim((string)($requestDetails['student_name'] ?? ''));
+    }
+
+    if ($course === '') {
+        $course = trim((string)($requestDetails['course_name'] ?? ''));
+    }
+
+    if ($period === '') {
+        $period = trim((string)($requestDetails['period_text'] ?? ''));
+    }
+}
+
 $dbStatus = getCurrentRequestStatus($conn, $requestId, $requestType);
 $effectiveStatus = $dbStatus ?: $status;
 $normalizedStatus = strtolower(trim((string)$effectiveStatus));
