@@ -37,11 +37,26 @@ class AttAnalyController{
         response(true,"Attendance summary",$result);
     }
 
-    // List every active class with a tracked/not-tracked flag for a given date
-    public static function getClassTrackingStatus($conn, $date){
+    // List every class with a tracked/not-tracked flag for a given date
+    // $dayGroup: '' (all), 'mon_thu' (weekday classes), 'sat_sun' (weekend classes)
+    // $classStatus: '' (all), 'progress', 'pre-end', 'end'
+    public static function getClassTrackingStatus($conn, $date, $dayGroup = '', $classStatus = ''){
 
         if(!$date){
             self::response(false, "Date is required");
+        }
+
+        $dayGroupCondition = "";
+        if ($dayGroup === 'sat_sun') {
+            $dayGroupCondition = "AND (LOWER(te.term) LIKE '%sat%' OR LOWER(te.term) LIKE '%sun%')";
+        } elseif ($dayGroup === 'mon_thu') {
+            $dayGroupCondition = "AND NOT (LOWER(te.term) LIKE '%sat%' OR LOWER(te.term) LIKE '%sun%')";
+        }
+
+        $validStatuses = ['progress', 'pre-end', 'end'];
+        $classStatusCondition = "";
+        if (in_array($classStatus, $validStatuses, true)) {
+            $classStatusCondition = "AND c.class_status = '" . $conn->real_escape_string($classStatus) . "'";
         }
 
         $sql = "
@@ -64,7 +79,9 @@ class AttAnalyController{
             LEFT JOIN users u ON c.instructor_id = u.id
             LEFT JOIN times t ON c.time_id = t.id
             LEFT JOIN terms te ON c.term_id = te.id
-            WHERE c.class_status != 'end'
+            WHERE 1=1
+            $dayGroupCondition
+            $classStatusCondition
             ORDER BY tracked ASC, c.id DESC
         ";
 

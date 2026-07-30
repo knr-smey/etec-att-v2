@@ -8,17 +8,34 @@
         <div class="card-body bg-white">
 
             <!-- Filter Row -->
-            <div class="row mb-4 align-items-end">
-                <div class="col-md-3">
+            <div class="row mb-3 align-items-end">
+                <div class="col-md-2">
                     <label for="trackingDate" class="form-label text-muted small fw-semibold">SELECT DATE</label>
                     <input type="date" id="trackingDate" class="form-control">
+                </div>
+                <div class="col-md-3">
+                    <label for="dayGroupFilter" class="form-label text-muted small fw-semibold">CLASS DAYS</label>
+                    <select id="dayGroupFilter" class="form-select">
+                        <option value="">All Classes</option>
+                        <option value="mon_thu">Mon - Thu</option>
+                        <option value="sat_sun">Sat - Sun</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label for="classStatusFilter" class="form-label text-muted small fw-semibold">CLASS STATUS</label>
+                    <select id="classStatusFilter" class="form-select">
+                        <option value="">All Status</option>
+                        <option value="progress">Progress</option>
+                        <option value="pre-end">Pre-End</option>
+                        <option value="end">End</option>
+                    </select>
                 </div>
                 <div class="col-md-2">
                     <button id="trackingFilterBtn" class="btn w-100 text-white fw-semibold" style="background-color: #2c6fad;">
                         Filter
                     </button>
                 </div>
-                <div class="col-md-4 ms-auto text-md-end">
+                <div class="col-md-2 ms-auto text-md-end">
                     <span class="badge bg-success">Tracked <span id="trackedCount">0</span></span>
                     <span class="badge bg-warning text-dark">Not Tracked <span id="notTrackedCount">0</span></span>
                 </div>
@@ -42,11 +59,12 @@
                             <th>Instructor</th>
                             <th>Term</th>
                             <th>Time</th>
-                            <th>Status</th>
+                            <th>Class Status</th>
+                            <th>Attendance</th>
                         </tr>
                     </thead>
                     <tbody id="trackingTbody">
-                        <tr><td colspan="6" class="text-center text-muted py-4">Select a date and click Filter</td></tr>
+                        <tr><td colspan="7" class="text-center text-muted py-4">Select a date and click Filter</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -57,28 +75,28 @@
 </div>
 
 <script>
-function loadAttendanceTrackingReport(date) {
+function loadAttendanceTrackingReport(date, dayGroup, classStatus) {
     $("#trackingTbody").empty();
     $("#trackingLoading").removeClass("d-none");
 
     $.ajax({
         url: "api.php",
         type: "GET",
-        data: { endpoint: "att_tracking_status", date: date },
+        data: { endpoint: "att_tracking_status", date: date, day_group: dayGroup, class_status: classStatus },
         dataType: "json",
 
         success: function (response) {
             $("#trackingLoading").addClass("d-none");
 
             if (!response.status) {
-                $("#trackingTbody").html(`<tr><td colspan="6" class="text-center text-danger py-4">${response.message}</td></tr>`);
+                $("#trackingTbody").html(`<tr><td colspan="7" class="text-center text-danger py-4">${response.message}</td></tr>`);
                 return;
             }
 
             let classes = response.data;
 
             if (!classes.length) {
-                $("#trackingTbody").html(`<tr><td colspan="6" class="text-center text-muted py-4">No active classes found</td></tr>`);
+                $("#trackingTbody").html(`<tr><td colspan="7" class="text-center text-muted py-4">No classes found</td></tr>`);
                 $("#trackedCount").text(0);
                 $("#notTrackedCount").text(0);
                 return;
@@ -91,6 +109,11 @@ function loadAttendanceTrackingReport(date) {
                     ? `<span class="badge bg-success">Tracked</span>`
                     : `<span class="badge bg-warning text-dark">Not Tracked</span>`;
 
+                let statusLabel = cls.class_status === 'progress' ? 'Progress'
+                    : cls.class_status === 'pre-end' ? 'Pre-End'
+                    : cls.class_status === 'end' ? 'End'
+                    : (cls.class_status ?? '-');
+
                 return `
                     <tr>
                         <td>${cls.class_id}</td>
@@ -98,6 +121,7 @@ function loadAttendanceTrackingReport(date) {
                         <td>${cls.instructor_name ?? '-'}</td>
                         <td>${cls.term_name ?? '-'}</td>
                         <td>${cls.time ?? '-'}</td>
+                        <td>${statusLabel}</td>
                         <td>${badge}</td>
                     </tr>
                 `;
@@ -110,26 +134,28 @@ function loadAttendanceTrackingReport(date) {
 
         error: function () {
             $("#trackingLoading").addClass("d-none");
-            $("#trackingTbody").html(`<tr><td colspan="6" class="text-center text-danger py-4">Something went wrong</td></tr>`);
+            $("#trackingTbody").html(`<tr><td colspan="7" class="text-center text-danger py-4">Something went wrong</td></tr>`);
         }
     });
 }
 
 $("#trackingFilterBtn").click(function () {
     let date = $("#trackingDate").val();
+    let dayGroup = $("#dayGroupFilter").val();
+    let classStatus = $("#classStatusFilter").val();
 
     if (!date) {
         alert("Please select a date");
         return;
     }
 
-    loadAttendanceTrackingReport(date);
+    loadAttendanceTrackingReport(date, dayGroup, classStatus);
 });
 
 // Default to today on first load
 $(function () {
     let today = new Date().toISOString().split("T")[0];
     $("#trackingDate").val(today);
-    loadAttendanceTrackingReport(today);
+    loadAttendanceTrackingReport(today, "", "");
 });
 </script>

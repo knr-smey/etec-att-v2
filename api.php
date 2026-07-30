@@ -1308,7 +1308,9 @@ switch ($endpoint) {
         if ($role !== 'admin' && $role !== 'superadmin') response(false, "Unauthorized");
 
         $date = $_GET['date'] ?? null;
-        AttAnalyController::getClassTrackingStatus($conn, $date);
+        $dayGroup = $_GET['day_group'] ?? '';
+        $classStatus = $_GET['class_status'] ?? '';
+        AttAnalyController::getClassTrackingStatus($conn, $date, $dayGroup, $classStatus);
     break;
 
     case "get_requested_certificates":
