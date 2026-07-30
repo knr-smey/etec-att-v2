@@ -1303,6 +1303,14 @@ switch ($endpoint) {
         AttAnalyController::filter_by_date($conn, $date);
     break;
 
+    case "att_tracking_status":
+        $role = $_SESSION['user']['role'] ?? '';
+        if ($role !== 'admin' && $role !== 'superadmin') response(false, "Unauthorized");
+
+        $date = $_GET['date'] ?? null;
+        AttAnalyController::getClassTrackingStatus($conn, $date);
+    break;
+
     case "get_requested_certificates":
 
         if ($method !== 'GET') response(false, "Method not allowed");

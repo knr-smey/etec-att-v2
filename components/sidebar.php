@@ -101,7 +101,13 @@
                             Attendance Analysis
                         </li>
                     </a>
-                    <button class="btn text-white w-100 my-1 px-2 border-0 fs-6 text-start d-flex justify-content-between align-items-center" 
+                    <a href="pages/admin/att_tracking_report.php" class="btn text-white w-100 text-start my-1 ps-2 border-0 fs-6 nav-link-ajax position-relative">
+                        <li class="m-0">
+                            <i class="bi bi-calendar2-check me-2"></i>
+                            Attendance Tracking Report
+                        </li>
+                    </a>
+                    <button class="btn text-white w-100 my-1 px-2 border-0 fs-6 text-start d-flex justify-content-between align-items-center"
                             type="button" 
                             data-bs-toggle="collapse" 
                             data-bs-target="#collapseAdmin"
