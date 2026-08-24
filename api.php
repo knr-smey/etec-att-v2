@@ -1310,7 +1310,8 @@ switch ($endpoint) {
         $date = $_GET['date'] ?? null;
         $dayGroup = $_GET['day_group'] ?? '';
         $classStatus = $_GET['class_status'] ?? '';
-        AttAnalyController::getClassTrackingStatus($conn, $date, $dayGroup, $classStatus);
+        $timeId = $_GET['time_id'] ?? '';
+        AttAnalyController::getClassTrackingStatus($conn, $date, $dayGroup, $classStatus, $timeId);
     break;
 
     case "get_requested_certificates":

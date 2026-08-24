@@ -40,7 +40,7 @@ class AttAnalyController{
     // List every class with a tracked/not-tracked flag for a given date
     // $dayGroup: '' (all), 'mon_thu' (weekday classes), 'sat_sun' (weekend classes)
     // $classStatus: '' (all), 'progress', 'pre-end', 'end'
-    public static function getClassTrackingStatus($conn, $date, $dayGroup = '', $classStatus = ''){
+    public static function getClassTrackingStatus($conn, $date, $dayGroup = '', $classStatus = '', $timeId = ''){
 
         if(!$date){
             self::response(false, "Date is required");
@@ -57,6 +57,11 @@ class AttAnalyController{
         $classStatusCondition = "";
         if (in_array($classStatus, $validStatuses, true)) {
             $classStatusCondition = "AND c.class_status = '" . $conn->real_escape_string($classStatus) . "'";
+        }
+
+        $timeCondition = "";
+        if ($timeId !== '' && $timeId !== null) {
+            $timeCondition = "AND c.time_id = " . intval($timeId);
         }
 
         $sql = "
@@ -82,6 +87,7 @@ class AttAnalyController{
             WHERE 1=1
             $dayGroupCondition
             $classStatusCondition
+            $timeCondition
             ORDER BY tracked ASC, c.id DESC
         ";
 
